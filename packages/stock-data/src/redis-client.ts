@@ -10,14 +10,23 @@ import type { RedisCacheClient } from "./cache.js";
  * prints "[ioredis] Unhandled error event" to stderr on each reconnect attempt — an unstructured
  * line no log query finds — so every composition root passes its structured logger here and a
  * Redis outage shows up as `stock-data.redis.error` beside the operation it broke.
+ *
+ * `maxRetriesPerRequest` is how many reconnection attempts a pending command waits through before
+ * it fails. The default, 1, fails fast — within a fraction of a second of an outage — which is right
+ * where a person is waiting for an answer. A batch process whose work would otherwise be lost to a
+ * brief Redis restart passes more: ioredis waits 50 ms before its first attempt, doubling to at most
+ * 5 s, so 30 attempts ride through about two minutes of refused connections. (A restarted Redis that
+ * is still loading its snapshot accepts the connection and holds commands until it is ready, which
+ * costs no attempt.)
  */
 export function createStockDataRedisClient(
   url: string,
   onError?: (error: Error) => void,
+  options: { maxRetriesPerRequest?: number } = {},
 ): Redis {
   const redis = new Redis(url, {
     lazyConnect: true,
-    maxRetriesPerRequest: 1,
+    maxRetriesPerRequest: options.maxRetriesPerRequest ?? 1,
   });
   if (onError) {
     redis.on("error", onError);

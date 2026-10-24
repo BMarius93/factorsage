@@ -11,6 +11,12 @@ type ConfirmDialogProps = {
   readonly body: ReactNode;
   readonly confirmLabel: string;
   readonly pendingLabel: string;
+  /**
+   * The quiet button that closes the dialog and changes nothing. `Cancel` by default; a dialog
+   * whose action is itself a cancellation names what backing out keeps instead ("Keep running"),
+   * so the two buttons never both say "Cancel".
+   */
+  readonly dismissLabel?: string;
   /** Runs the mutation; the dialog owns pending/error state so callers stay declarative. */
   readonly onConfirm: () => Promise<void>;
   readonly onClose: () => void;
@@ -35,12 +41,16 @@ function failureMessage(error: unknown): string {
   );
 }
 
-/** Confirmation gate for a destructive action: deleting a list, a strategy, or a member row. */
+/**
+ * Confirmation gate for a destructive action: deleting a list, a strategy, or a member row, or
+ * stopping a backtest.
+ */
 export function ConfirmDialog({
   title,
   body,
   confirmLabel,
   pendingLabel,
+  dismissLabel = "Cancel",
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -74,7 +84,7 @@ export function ConfirmDialog({
             onClick={onClose}
             disabled={pending}
           >
-            Cancel
+            {dismissLabel}
           </button>
           <button
             type="button"

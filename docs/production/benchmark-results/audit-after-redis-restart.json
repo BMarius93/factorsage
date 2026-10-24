@@ -1,0 +1,15 @@
+{
+  "command": "audit",
+  "lruSize": 400,
+  "designated": 735,
+  "universe": 735,
+  "securitiesWithKeys": 1000,
+  "keys": 72000,
+  "inBothTiers": 0,
+  "universeInLru": 0,
+  "designatedNotInUniverse": 0,
+  "orphans": 0,
+  "orphanSample": [],
+  "protectedKeysWithTtl": 0,
+  "redisUsedMemoryBytes": 1052093712
+}

@@ -1,0 +1,32 @@
+{
+  "phase": "residency",
+  "designated": 735,
+  "keys": 52920,
+  "protectedKeysWithTtl": 0,
+  "designatedWithoutManifest": 0,
+  "digest": {
+    "designated": 735,
+    "registeredKeys": 52920,
+    "manifestsAndRegistries": "d38bb8e000b2bfa9322abc7b68196ce3576debc6b4e3a4da2e7ee97c4f3cfbbb",
+    "sampleChunkBytes": "eb2e4c0733243af6fc6b4cc5fe7bd3c87c93c9a3586b65dc8148043d88841148",
+    "sampleChunksOnly": "fa32e4f08733dea80f704d909eabf54ffae77ef983e95a38c86103cf6832fc5c"
+  },
+  "audit": {
+    "lru": {
+      "capacity": 500,
+      "members": 400,
+      "ready": 400,
+      "withoutReadyManifest": []
+    },
+    "protected": {
+      "designated": 735,
+      "ready": 735,
+      "hydrating": 0,
+      "notResident": 0,
+      "keysWithTtl": {}
+    },
+    "orphans": 0,
+    "dualResidency": 0,
+    "violations": []
+  }
+}

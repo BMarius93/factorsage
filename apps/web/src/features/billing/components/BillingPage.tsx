@@ -24,6 +24,7 @@ import {
   statusNotice,
 } from "../utils/format";
 import { currentPriceKeyOf, planCardState } from "../utils/plan-actions";
+import { displayedInterval } from "../utils/plan-presentation";
 import { SubscriptionDisclosure } from "../../legal/components/SubscriptionDisclosure";
 import { BillingUnavailableNote, PlanCatalog } from "./PlanCatalog";
 import styles from "./BillingPage.module.css";
@@ -33,9 +34,9 @@ import styles from "./BillingPage.module.css";
  *
  * An authenticated product page composed from the same vocabulary as Lists, Strategies, Monitors
  * and Backtests — `PageContainer`, `PageHeader`, `SectionCard`, `FactGrid`, `StatusBadge` — with
- * three plan cards and one cadence toggle as the only feature-owned composition. There are three
- * plans, so there are three cards: monthly and yearly are a property of a plan, not two products,
- * and rendering four cards made the page a price list rather than a comparison.
+ * the plan cards (and a cadence toggle, only while the catalog sells more than one cadence) as the
+ * only feature-owned composition. One card per plan: a cadence is a property of a plan, not a
+ * product, so a second cadence would never become a second card.
  *
  * **Everything shown comes from the server's own billing state.** The plan badge is `User.plan`,
  * the column every entitlement check reads, so this page can never show a tier the guards would
@@ -146,10 +147,13 @@ function BillingContent({
    */
   const [interval, setInterval] = useState<BillingInterval>(
     // Only a *live* subscription seeds the cadence. An ended yearly one used to open the page on
-    // Yearly, quoting the plan the customer had left at the price they had stopped paying.
-    subscription?.interval && occupiesPaidSlot(subscription.status)
-      ? subscription.interval
-      : "MONTH",
+    // Yearly, quoting the plan the customer had left at the price they had stopped paying. And only
+    // a cadence the catalog still sells: a subscriber on a retired one sees today's prices.
+    displayedInterval(
+      subscription?.interval && occupiesPaidSlot(subscription.status)
+        ? subscription.interval
+        : "MONTH",
+    ),
   );
   const { pendingPlan, portalPending, busy, failure, act, openPortal } =
     usePlanActions({ onChanged });
@@ -373,6 +377,17 @@ function SubscriptionSection({
           >
             <p>{notice.message}</p>
           </Notice>
+        ) : null}
+
+        {live && subscription.legacyPrice ? (
+          <p className={styles.scheduled} data-testid="billing-legacy-price">
+            You are billed at an earlier price, which you keep for as long as you stay on{" "}
+            {PLAN_LABEL[billing.plan]}
+            {subscription.interval
+              ? ` ${INTERVAL_LABEL[subscription.interval].toLowerCase()}`
+              : ""}
+            . Changing plan or billing interval moves you to today&apos;s price.
+          </p>
         ) : null}
 
         {currentPriceKey === null && subscription.plan === null ? (

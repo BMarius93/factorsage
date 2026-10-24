@@ -710,6 +710,7 @@ describe("backtest worker configuration", () => {
       checkpointEveryDays: 5,
       checkpointMinIntervalMs: 1_000,
       frameConcurrency: 4,
+      nonResidentFrameRead: "STORE",
     });
   });
 
@@ -735,6 +736,22 @@ describe("backtest worker configuration", () => {
     expect(config.checkpointEveryDays).toBe(10);
     expect(config.checkpointMinIntervalMs).toBe(500);
     expect(config.frameConcurrency).toBe(12);
+  });
+
+  it("reads how a window reads a non-resident security, and refuses anything else", () => {
+    expect(
+      getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: "STORE" })
+        .nonResidentFrameRead,
+    ).toBe("STORE");
+    expect(
+      getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: "REBUILD" })
+        .nonResidentFrameRead,
+    ).toBe("REBUILD");
+    for (const value of ["store", "POSTGRES", "1"]) {
+      expect(() =>
+        getBacktestWorkerConfig({ BACKTEST_NON_RESIDENT_FRAME_READ: value }),
+      ).toThrow(/BACKTEST_NON_RESIDENT_FRAME_READ/);
+    }
   });
 
   it("rejects a worker count that cannot run", () => {
@@ -888,6 +905,8 @@ describe(".env.example template", () => {
       "STRIPE_PRICE_STARTER_YEARLY",
       "STRIPE_PRICE_PRO_MONTHLY",
       "STRIPE_PRICE_PRO_YEARLY",
+      "STRIPE_PRICE_PRO_PLUS_MONTHLY",
+      "STRIPE_PRICE_PRO_PLUS_YEARLY",
     ];
 
     for (const name of mustBeEmpty) {
@@ -924,6 +943,8 @@ describe("getStripeBillingConfig", () => {
     STRIPE_PRICE_STARTER_YEARLY: "price_starter_y",
     STRIPE_PRICE_PRO_MONTHLY: "price_pro_m",
     STRIPE_PRICE_PRO_YEARLY: "price_pro_y",
+    STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_pro_plus_m",
+    STRIPE_PRICE_PRO_PLUS_YEARLY: "price_pro_plus_y",
   };
 
   function sandbox(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -940,6 +961,69 @@ describe("getStripeBillingConfig", () => {
     expect(getStripeBillingConfig({ NODE_ENV: "development" })).toBeNull();
   });
 
+  describe("retired prices (STRIPE_LEGACY_PRICES)", () => {
+    it("is empty when unset", () => {
+      expect(getStripeBillingConfig(sandbox())?.legacyPrices).toEqual([]);
+    });
+
+    it("parses each retired price with the plan and cadence it grants", () => {
+      const config = getStripeBillingConfig(
+        sandbox({ STRIPE_LEGACY_PRICES: " price_old1=STARTER/MONTH , price_old2=PRO/YEAR,price_old3=PRO_PLUS/MONTH " }),
+      );
+      expect(config?.legacyPrices).toEqual([
+        { priceId: "price_old1", plan: "STARTER", interval: "MONTH" },
+        { priceId: "price_old2", plan: "PRO", interval: "YEAR" },
+        { priceId: "price_old3", plan: "PRO_PLUS", interval: "MONTH" },
+      ]);
+    });
+
+    it.each([
+      ["price_old1", "not price_…=PLAN/INTERVAL"],
+      ["price_old1=FREE/MONTH", "FREE is never a price"],
+      ["price_old1=PRO/WEEK", "unknown cadence"],
+      ["prod_old1=PRO/MONTH", "not a price id"],
+    ])("refuses %s (%s)", (entry) => {
+      expect(() => getStripeBillingConfig(sandbox({ STRIPE_LEGACY_PRICES: entry }))).toThrow(
+        /STRIPE_LEGACY_PRICES entry/,
+      );
+    });
+
+    it("refuses a duplicate and a price that is also a current catalog price", () => {
+      expect(() =>
+        getStripeBillingConfig(
+          sandbox({ STRIPE_LEGACY_PRICES: "price_old1=PRO/YEAR,price_old1=PRO/YEAR" }),
+        ),
+      ).toThrow(/appears twice/);
+      expect(() =>
+        getStripeBillingConfig(sandbox({ STRIPE_LEGACY_PRICES: "price_pro_m=PRO/MONTH" })),
+      ).toThrow(/current catalog price/);
+    });
+
+    it("refuses a V1 year left in a yearly variable that is also listed as retired", () => {
+      // The migration mistake this guard exists for: STRIPE_PRICE_PRO_YEARLY still holds the V1
+      // $299 price while STRIPE_LEGACY_PRICES grandfathers it. Selling it as today's Pro year would
+      // undercut the $439 price, so the configuration is refused at startup.
+      expect(() =>
+        getStripeBillingConfig(
+          sandbox({
+            STRIPE_PRICE_PRO_YEARLY: "price_v1_pro_y",
+            STRIPE_LEGACY_PRICES: "price_v1_pro_y=PRO/YEAR",
+          }),
+        ),
+      ).toThrow(/price_v1_pro_y is a current catalog price and cannot also be a legacy price/);
+    });
+
+    it("keeps a retired year apart from today's year of the same plan", () => {
+      const config = getStripeBillingConfig(
+        sandbox({ STRIPE_LEGACY_PRICES: "price_v1_starter_y=STARTER/YEAR" }),
+      );
+      expect(config?.priceIds.STARTER_YEARLY).toBe("price_starter_y");
+      expect(config?.legacyPrices).toEqual([
+        { priceId: "price_v1_starter_y", plan: "STARTER", interval: "YEAR" },
+      ]);
+    });
+  });
+
   it("resolves a complete sandbox configuration", () => {
     const config = getStripeBillingConfig(sandbox());
     expect(config).not.toBeNull();
@@ -949,6 +1033,8 @@ describe("getStripeBillingConfig", () => {
       STARTER_YEARLY: "price_starter_y",
       PRO_MONTHLY: "price_pro_m",
       PRO_YEARLY: "price_pro_y",
+      PRO_PLUS_MONTHLY: "price_pro_plus_m",
+      PRO_PLUS_YEARLY: "price_pro_plus_y",
     });
   });
 
@@ -1032,12 +1118,45 @@ describe("getStripeBillingConfig", () => {
   });
 
   it("rejects two logical prices pointing at one Stripe price", () => {
-    // The copy-paste that would sell Pro at the Starter price, or bill a yearly plan monthly.
+    // The copy-paste that would sell Pro at the Starter price, or Pro+ at the Pro price.
     expect(() =>
       getStripeBillingConfig(
         sandbox({ STRIPE_PRICE_PRO_MONTHLY: "price_starter_m" }),
       ),
     ).toThrow(/each logical price must map to its own Stripe price/);
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({ STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_pro_m" }),
+      ),
+    ).toThrow(
+      /STRIPE_PRICE_PRO_PLUS_MONTHLY and STRIPE_PRICE_PRO_MONTHLY are the same Stripe Price ID/,
+    );
+    // A year pointed at a month: the cadence would be wrong, and so would the amount.
+    expect(() =>
+      getStripeBillingConfig(sandbox({ STRIPE_PRICE_PRO_PLUS_YEARLY: "price_pro_plus_m" })),
+    ).toThrow(
+      /STRIPE_PRICE_PRO_PLUS_YEARLY and STRIPE_PRICE_PRO_PLUS_MONTHLY are the same Stripe Price ID/,
+    );
+  });
+
+  it.each([
+    "STRIPE_PRICE_STARTER_MONTHLY",
+    "STRIPE_PRICE_STARTER_YEARLY",
+    "STRIPE_PRICE_PRO_MONTHLY",
+    "STRIPE_PRICE_PRO_YEARLY",
+    "STRIPE_PRICE_PRO_PLUS_MONTHLY",
+    "STRIPE_PRICE_PRO_PLUS_YEARLY",
+  ])("requires %s once billing is configured", (name) => {
+    // A deployment missing one price — a V1 configuration that never added Pro+, or a monthly-only
+    // one that never added the years — is refused at startup rather than failing that Checkout.
+    const withoutIt = sandbox();
+    delete withoutIt[name];
+    expect(() => getStripeBillingConfig(withoutIt)).toThrow(
+      `Invalid application configuration: ${name} is required`,
+    );
+    expect(() => getStripeBillingConfig(sandbox({ [name]: "  " }))).toThrow(
+      new RegExp(`${name} is required`),
+    );
   });
 });
 

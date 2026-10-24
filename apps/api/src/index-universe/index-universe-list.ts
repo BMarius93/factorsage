@@ -40,10 +40,14 @@ export async function writeIndexUniverseList(input: {
           name: universe.listName,
           description: universe.listDescription,
           displayOrder: 0,
+          // A point-in-time index universe is premium content by definition
+          // (`docs/decisions/entitlements-v2.md` §6).
+          premium: true,
         },
         update: {
           name: universe.listName,
           description: universe.listDescription,
+          premium: true,
         },
         select: { id: true },
       });

@@ -1,0 +1,19 @@
+{
+  "command": "audit",
+  "lruSize": 117,
+  "designated": 735,
+  "universe": 735,
+  "securitiesWithKeys": 855,
+  "keys": 61393,
+  "inBothTiers": 0,
+  "universeInLru": 0,
+  "designatedNotInUniverse": 0,
+  "orphans": 3,
+  "orphanSample": [
+    "42c1202b-3750-4f96-92ee-2abcc927419e",
+    "f831aade-a809-4494-8207-b6bf1a4a654b",
+    "0c832921-2f98-4a96-ae46-e6e3e12755d0"
+  ],
+  "protectedKeysWithTtl": 0,
+  "redisUsedMemoryBytes": 897548512
+}

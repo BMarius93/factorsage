@@ -197,6 +197,35 @@ export type SharedBacktestPreviewResponse = {
 };
 
 // ---------------------------------------------------------------------------
+// Demonstrations
+// ---------------------------------------------------------------------------
+
+/** The most demonstrations `GET /demo-backtests` lists: a curated shelf, never a directory. */
+export const DEMO_BACKTESTS_MAX = 12;
+
+/**
+ * One operator-featured demonstration (`docs/decisions/entitlements-v2.md` §4): a shared report
+ * listed publicly, so a Guest can see what a backtest produces without running one. Everything it
+ * carries is what the shared report itself publishes — the headline figures and the general
+ * parameters — and reading it executes nothing.
+ */
+export type DemoBacktestResponse = {
+  title: string;
+  description: string | null;
+  /** The shared report on the web origin, `/share/{token}`. */
+  path: string;
+  /** The same, absolute. */
+  url: string;
+  completedAt: string;
+  configuration: SharedBacktestPreviewResponse["configuration"];
+  headline: SharedBacktestPreviewResponse["headline"];
+};
+
+export type DemoBacktestListResponse = {
+  demos: DemoBacktestResponse[];
+};
+
+// ---------------------------------------------------------------------------
 // Derivations
 // ---------------------------------------------------------------------------
 

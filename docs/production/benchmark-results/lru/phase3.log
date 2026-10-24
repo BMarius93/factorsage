@@ -1,0 +1,29 @@
+mem before protect: used_memory:533129624 used_memory_rss:616587264 
+{"event":"phase3.start","name":"protect-initial","at":"2026-10-23T19:00:25Z"}
+{"event":"phase3.done","name":"protect-initial","exit":0,"seconds":975,"at":"2026-10-23T19:16:40Z"}
+mem after protect: used_memory:1302091864 used_memory_rss:1445478400 
+{"event":"phase3.start","name":"residency-initial","at":"2026-10-23T19:16:40Z"}
+{"event":"phase3.done","name":"residency-initial","exit":0,"seconds":2,"at":"2026-10-23T19:16:42Z"}
+{"event":"phase3.start","name":"concurrency-500","at":"2026-10-23T19:16:42Z"}
+{"event":"phase3.done","name":"concurrency-500","exit":0,"seconds":232,"at":"2026-10-23T19:20:34Z"}
+mem after concurrency-500: used_memory:1299383352 used_memory_rss:1444794368 
+{"event":"phase3.start","name":"concurrency-400","at":"2026-10-23T19:20:34Z"}
+{"event":"phase3.done","name":"concurrency-400","exit":0,"seconds":130,"at":"2026-10-23T19:22:44Z"}
+{"event":"phase3.start","name":"promotion","at":"2026-10-23T19:22:44Z"}
+{"event":"phase3.done","name":"promotion","exit":0,"seconds":2,"at":"2026-10-23T19:22:46Z"}
+{"event":"phase3.start","name":"residency-before-restart","at":"2026-10-23T19:22:46Z"}
+{"event":"phase3.done","name":"residency-before-restart","exit":0,"seconds":3,"at":"2026-10-23T19:22:49Z"}
+restart: 2026-10-23T19:22:49Z used_memory:1194353384 used_memory_rss:1334591488 
+{"event":"phase3.redis-restarted","ms":15483}
+mem after restart: used_memory:1193061776 used_memory_rss:1299116032 
+{"event":"phase3.start","name":"residency-after-restart","at":"2026-10-23T19:23:04Z"}
+{"event":"phase3.done","name":"residency-after-restart","exit":0,"seconds":3,"at":"2026-10-23T19:23:07Z"}
+OK
+{"event":"phase3.start","name":"protect-after-flush","at":"2026-10-23T19:23:07Z"}
+{"event":"phase3.done","name":"protect-after-flush","exit":0,"seconds":876,"at":"2026-10-23T19:37:43Z"}
+mem after protect-after-flush: used_memory:775429072 used_memory_rss:855650304 
+{"event":"phase3.start","name":"residency-after-flush","at":"2026-10-23T19:37:43Z"}
+{"event":"phase3.done","name":"residency-after-flush","exit":0,"seconds":2,"at":"2026-10-23T19:37:45Z"}
+{"event":"phase3.finished","at":"2026-10-23T19:37:45Z"}
+{"event":"phase3.start","name":"lru-500","at":"2026-10-23T19:37:58Z"}
+{"event":"phase3.done","name":"lru-500","exit":0,"seconds":2032,"at":"2026-10-23T20:11:50Z"}

@@ -32,6 +32,10 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
+import {
+  PremiumBadge,
+  PremiumLockedState,
+} from "../../billing/components/PremiumContent";
 import { LimitMeter } from "../../../components/ui/LimitMeter";
 import {
   isEntitlementError,
@@ -347,6 +351,22 @@ export function ListDetail({ listId }: ListDetailProps) {
     );
   }
 
+  if (status === "locked" || detail?.locked === true) {
+    // A premium built-in this plan does not include: its members are withheld, so there is no
+    // member view, no backtest and no copy to offer — only where it is included.
+    return (
+      <PageContainer>
+        <div className={styles.page}>
+          <PremiumLockedState
+            thing="list"
+            back={{ href: "/lists", label: "Lists" }}
+            testId="list-locked"
+          />
+        </div>
+      </PageContainer>
+    );
+  }
+
   if (status === "error" || !detail) {
     return (
       <PageContainer>
@@ -495,6 +515,8 @@ export function ListDetail({ listId }: ListDetailProps) {
                   Built-in
                 </StatusBadge>
               ) : null}
+              {/* Readable in full here, so never locked: a locked list never reaches this view. */}
+              {detail.premium ? <PremiumBadge /> : null}
               <StatusBadge tone="neutral">
                 {stockCountLabel(detail.items.length)}
               </StatusBadge>

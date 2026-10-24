@@ -270,6 +270,10 @@ const PROVIDER_OVERRIDES = {
   STRIPE_PRICE_STARTER_YEARLY: "price_e2e_starter_yearly",
   STRIPE_PRICE_PRO_MONTHLY: "price_e2e_pro_monthly",
   STRIPE_PRICE_PRO_YEARLY: "price_e2e_pro_yearly",
+  STRIPE_PRICE_PRO_PLUS_MONTHLY: "price_e2e_pro_plus_monthly",
+  STRIPE_PRICE_PRO_PLUS_YEARLY: "price_e2e_pro_plus_yearly",
+  // A developer's retired-price list names real Stripe prices; the hermetic stack has none.
+  STRIPE_LEGACY_PRICES: "",
 } as const;
 
 /**

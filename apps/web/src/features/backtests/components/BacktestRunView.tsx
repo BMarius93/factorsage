@@ -12,6 +12,7 @@ import {
   type BacktestFailureResponse,
   type BacktestHoldingResponse,
   type BacktestMilestoneResponse,
+  type BacktestQueueStateResponse,
   type BacktestRunConfigurationResponse,
   type BacktestRunStatus,
   type BacktestTradeResponse,
@@ -19,6 +20,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Notice } from "../../../components/ui/Notice";
 import { LinkedEntities } from "../../../components/ui/EntityReference";
@@ -37,6 +39,7 @@ import { useBacktestTrades } from "../hooks/use-backtest-trades";
 import { failureGuidance } from "../utils/failure";
 import { etfConditionsGuidance } from "../utils/etf-conditions";
 import { rerunHref } from "../utils/prefill";
+import { QUEUE_FAIRNESS_NOTE, queuePositionText } from "../utils/queue";
 import {
   formatCount,
   formatDay,
@@ -81,6 +84,9 @@ function statusTone(status: BacktestRunStatus): StatusTone {
       return "positive";
     case "FAILED":
       return "negative";
+    case "CANCELLED":
+      // Stopped by its owner: decided, and nothing went wrong.
+      return "neutral";
     case "RUNNING":
     case "FINALIZING":
       return "active";
@@ -144,10 +150,13 @@ function RunProvenance({
   configuration,
   queuedAt,
   completedAt,
+  cancelled,
 }: {
   readonly configuration: BacktestRunConfigurationResponse;
   readonly queuedAt: string;
   readonly completedAt: string | null;
+  /** A cancelled run's end is when it was stopped, not when it finished. */
+  readonly cancelled: boolean;
 }) {
   return (
     // The whole block is the run's configuration: the entities it named and the parameters it
@@ -211,7 +220,12 @@ function RunProvenance({
           // When the run was submitted — not how long it then waited in the queue.
           { label: "Created", value: formatTimestamp(queuedAt) },
           ...(completedAt
-            ? [{ label: "Finished", value: formatTimestamp(completedAt) }]
+            ? [
+                {
+                  label: cancelled ? "Cancelled" : "Finished",
+                  value: formatTimestamp(completedAt),
+                },
+              ]
             : []),
         ]}
       />
@@ -458,6 +472,67 @@ function FailurePanel({
   );
 }
 
+/**
+ * A run its owner stopped. Like a failed one it has no result — the years it got through before it
+ * stopped are not one — so the page says what happened and offers the same configuration back.
+ */
+function CancelledPanel({
+  runId,
+  configuration,
+  completedAt,
+}: {
+  readonly runId: string;
+  readonly configuration: BacktestRunConfigurationResponse;
+  readonly completedAt: string | null;
+}) {
+  return (
+    <Notice
+      tone="info"
+      testId="backtest-cancelled"
+      title="This backtest was cancelled"
+      actions={
+        <>
+          <Link
+            className={forms.primaryButton}
+            href={rerunHref(runId, configuration)}
+            data-testid="backtest-cancelled-rerun"
+          >
+            Run again with these settings
+          </Link>
+          <Link className={forms.secondaryButton} href="/backtests">
+            Back to Backtests
+          </Link>
+        </>
+      }
+    >
+      <p>
+        {completedAt
+          ? `It was stopped on ${formatTimestamp(completedAt)}, before it finished, so it has no result.`
+          : "It was stopped before it finished, so it has no result."}
+      </p>
+    </Notice>
+  );
+}
+
+/**
+ * Where a queued run stands: an upper bound on the runs ahead of it and how busy the shared
+ * capacity is, never a place in a line or a start time (`utils/queue.ts`).
+ */
+function QueuePosition({
+  queue,
+}: {
+  readonly queue: BacktestQueueStateResponse;
+}) {
+  return (
+    <div className={styles.queue} data-testid="backtest-queue">
+      <p className={styles.queuePosition} data-testid="backtest-queue-position">
+        {queuePositionText(queue)}
+      </p>
+      <p className={styles.queueNote}>{QUEUE_FAIRNESS_NOTE}</p>
+    </div>
+  );
+}
+
 /** The worker's progress message, when it is more than the status label the badge already shows. */
 function distinctPhase(
   message: string | null,
@@ -497,8 +572,15 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     live,
     milestones,
     failure,
+    queue,
+    cancelling,
+    cancel,
     retry,
   } = useBacktestRun(runId);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // The owner asked to stop a run that had already completed or failed: said once, beside the
+  // outcome the page has just re-read, so the request is not silently swallowed.
+  const [cancelTooLate, setCancelTooLate] = useState(false);
   // The status the page was opened in is already on screen and is not news; each change after it
   // is announced once through a polite live region (BT-5).
   const [announcement, setAnnouncement] = useState("");
@@ -594,6 +676,9 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   const terminal = isTerminalBacktestStatus(status);
   const completed = status === "COMPLETED";
   const failed = status === "FAILED";
+  const cancelled = status === "CANCELLED";
+  // A failed or cancelled run ended without a result, and nothing it computed on the way is one.
+  const noResult = failed || cancelled;
   // Everything the chart is still producing data for. A locked viewport, a value axis that only
   // grows and a refused gesture all follow from this one question, and it is the run's lifecycle
   // that answers it — not whether a curve happens to have arrived yet.
@@ -633,10 +718,11 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   // A failed run has no partial result, and the prefix a dead attempt reached is not one. The
   // payload drops its live snapshot for exactly that reason, so the retained one is dropped with
   // it: keeping the curve, KPIs and holdings on screen beside a failure would read as an outcome.
-  if (failed) {
+  // A cancelled run is the same: it stopped before it had a result.
+  if (noResult) {
     lastSnapshotRef.current = null;
   }
-  const snapshot = failed ? null : (arrived ?? lastSnapshotRef.current);
+  const snapshot = noResult ? null : (arrived ?? lastSnapshotRef.current);
   const curve = snapshot?.curve ?? [];
   // Read only from the durable result, so it appears with the numbers it qualifies and never
   // beside the last live snapshot.
@@ -682,9 +768,14 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 {BACKTEST_RUN_STATUS_LABELS[status]}
               </StatusBadge>
             }
-            // A finished run's natural next step is a variation of it (UI-032). The failure panel
-            // carries its own recovery, so the hero offers this only for a completed run.
-            // Sharing publishes the result, so it exists only once there is one.
+            // A finished run's natural next step is a variation of it (UI-032). The failure and
+            // cancellation panels carry their own recovery, so the hero offers this only for a
+            // completed run. Sharing publishes the result, so it exists only once there is one.
+            //
+            // Work still in flight can be stopped. Only the owner ever sees this page — another
+            // account's run is a 404 — so the control needs no ownership check of its own. While
+            // a requested stop waits for the worker's next checkpoint it says so, and cannot be
+            // asked twice.
             {...(completed
               ? {
                   actions: (
@@ -700,8 +791,28 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                     </>
                   ),
                 }
-              : {})}
+              : terminal
+                ? {}
+                : {
+                    actions: (
+                      <button
+                        type="button"
+                        className={forms.secondaryButton}
+                        data-testid="backtest-cancel"
+                        disabled={cancelling}
+                        onClick={() => setConfirmingCancel(true)}
+                      >
+                        {cancelling ? "Cancelling…" : "Cancel backtest"}
+                      </button>
+                    ),
+                  })}
           />
+
+          {cancelTooLate && terminal && !cancelled ? (
+            <Notice tone="info" testId="backtest-cancel-too-late">
+              <p>This backtest finished before it could be cancelled.</p>
+            </Notice>
+          ) : null}
 
           {/* A fund whose data the run could not read is the first thing said about the result:
               its rules never matched, so every number below — no trades above all — has to be read
@@ -770,6 +881,16 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 </p>
               ) : null}
               <BacktestMilestoneTrail milestones={milestones} />
+              {queue ? <QueuePosition queue={queue} /> : null}
+              {cancelling ? (
+                <p
+                  className={styles.cancelling}
+                  data-testid="backtest-cancelling"
+                >
+                  Cancelling — the run stops at its next checkpoint, usually
+                  within seconds.
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -781,7 +902,15 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             />
           ) : null}
 
-          {failed ? null : (
+          {cancelled ? (
+            <CancelledPanel
+              runId={runId}
+              configuration={configuration}
+              completedAt={run.completedAt}
+            />
+          ) : null}
+
+          {noResult ? null : (
             <>
               {/* The chart and the eight numbers that summarise it, as one overview — the same
                   component a shared report renders. Its frame holds one height from the first
@@ -844,17 +973,19 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             configuration={configuration}
             queuedAt={run.queuedAt}
             completedAt={run.completedAt}
+            cancelled={cancelled}
           />
         </details>
 
-        {/* A failed run never produced holdings or trades. Showing "No positions" and "Trade log
-            0" under a failure read as if the run had executed and simply bought nothing (UI-031).
+        {/* A failed or cancelled run never produced holdings or trades. Showing "No positions" and
+            "Trade log 0" under a failure read as if the run had executed and simply bought nothing
+            (UI-031).
 
             A **completed** run has no holdings section at all: it liquidates everything it still
             holds at the end of its period, so the final state is cash and an empty panel would be
             a question with a permanent answer. While the run is executing its open positions are
             real, and are still worth watching. */}
-        {failed ? null : (
+        {noResult ? null : (
           <div className={styles.columns}>
             {completed ? null : (
               <BacktestHoldings
@@ -893,6 +1024,37 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           </div>
         )}
       </div>
+
+      {confirmingCancel ? (
+        <ConfirmDialog
+          title="Cancel this backtest?"
+          body={
+            <p className={styles.confirmBody}>
+              {status === "QUEUED"
+                ? `${backtestRunLabel(run.runNumber)} has not started yet. Cancelling takes it out of the queue, and it will have no result.`
+                : `${backtestRunLabel(run.runNumber)} stops at its next checkpoint, usually within seconds. A cancelled run has no result and cannot be resumed, though you can run it again with the same settings.`}
+            </p>
+          }
+          confirmLabel="Cancel backtest"
+          pendingLabel="Cancelling…"
+          dismissLabel={status === "QUEUED" ? "Keep it queued" : "Keep running"}
+          onClose={() => setConfirmingCancel(false)}
+          // A refusal other than "it already finished" stays in the dialog, worded by the shared
+          // translator, so the owner can try again or back out.
+          onConfirm={async () => {
+            const outcome = await cancel();
+            setConfirmingCancel(false);
+            setCancelTooLate(outcome === "already-finished");
+            if (outcome === "cancelling") {
+              // The status itself does not change until the worker stops, so the transition
+              // announcement would say nothing yet.
+              setAnnouncement(
+                "Cancellation requested. The backtest stops at its next checkpoint.",
+              );
+            }
+          }}
+        />
+      ) : null}
     </PageContainer>
   );
 }

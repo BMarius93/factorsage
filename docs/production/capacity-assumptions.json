@@ -1,0 +1,109 @@
+{
+  "$comment": "Inputs of the capacity model (docs/production/capacity-model.md \u00a72). Measured service times come from benchmark-results/scale-backtests.jsonl by label; everything else here is an ASSUMPTION, chosen and justified in capacity-model.md, and recomputed by `tsx src/backtest-benchmark/capacity-model.ts`.",
+  "servers": 4,
+  "alone": {
+    "10": ["A-warm-mixed", "A-warm-mixed-2", "A-warm-mixed-3"],
+    "50": ["B-warm-mixed", "B-warm-mixed-2", "B-warm-mixed-3"],
+    "250": ["C-warm-mixed", "C-warm-mixed-2", "C-warm-mixed-3"],
+    "500": ["D-warm-mixed"],
+    "750": ["E-warm-mixed"],
+    "1000": ["F-warm-mixed", "F-warm-mixed-2"]
+  },
+  "fourWay": [
+    "H-warm-mixed-shared-1",
+    "H-warm-mixed-shared-2",
+    "I-warm-mixed-shared"
+  ],
+  "coldRebuild": {
+    "coldLabel": "H-cold-mixed-shared",
+    "warmLabels": ["H-warm-mixed-shared-1", "H-warm-mixed-shared-2"]
+  },
+  "protectedShareOfMembers": 0.6,
+  "coldOrdinaryShares": [0, 0.25, 0.5, 1],
+  "runsPerActiveUserPerDay": {
+    "FREE": 1,
+    "STARTER": 2,
+    "PRO": 4,
+    "PRO_PLUS": 8
+  },
+  "sizeMix": {
+    "FREE": {
+      "10": 1
+    },
+    "STARTER": {
+      "50": 1
+    },
+    "PRO": {
+      "250": 0.5,
+      "500": 0.3,
+      "750": 0.2
+    },
+    "PRO_PLUS": {
+      "500": 0.3,
+      "1000": 0.7
+    }
+  },
+  "mixes": {
+    "mostly-free": {
+      "plans": {
+        "FREE": 0.85,
+        "STARTER": 0.1,
+        "PRO": 0.04,
+        "PRO_PLUS": 0.01
+      },
+      "peakHourShare": 0.12
+    },
+    "mostly-starter": {
+      "plans": {
+        "FREE": 0.3,
+        "STARTER": 0.6,
+        "PRO": 0.08,
+        "PRO_PLUS": 0.02
+      },
+      "peakHourShare": 0.12
+    },
+    "mostly-pro": {
+      "plans": {
+        "FREE": 0.2,
+        "STARTER": 0.2,
+        "PRO": 0.55,
+        "PRO_PLUS": 0.05
+      },
+      "peakHourShare": 0.12
+    },
+    "mixed": {
+      "plans": {
+        "FREE": 0.6,
+        "STARTER": 0.25,
+        "PRO": 0.12,
+        "PRO_PLUS": 0.03
+      },
+      "peakHourShare": 0.12
+    },
+    "high-pro-plus": {
+      "plans": {
+        "FREE": 0.4,
+        "STARTER": 0.2,
+        "PRO": 0.2,
+        "PRO_PLUS": 0.2
+      },
+      "peakHourShare": 0.12
+    },
+    "market-close-peak": {
+      "plans": {
+        "FREE": 0.6,
+        "STARTER": 0.25,
+        "PRO": 0.12,
+        "PRO_PLUS": 0.03
+      },
+      "peakHourShare": 0.25,
+      "note": "the mixed plan shares, with a quarter of the day's runs arriving in the hour after the close"
+    }
+  },
+  "dau": [50, 100, 250, 500, 1000, 2000, 5000],
+  "targets": {
+    "maxUtilization": 0.7,
+    "maxP95WaitMinutes": 15
+  },
+  "queueBound": 100
+}

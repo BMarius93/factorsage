@@ -104,7 +104,12 @@ Read `ai/README.md` before substantial work.
     lease, ownership-guarded writes). Do not add a queue library, and do not make Redis the queue.
     One backtest is never internally parallelized: its simulation stays sequential and
     single-process so it is deterministic. Concurrency comes from independent worker OS processes,
-    configured by `BACKTEST_WORKER_PROCESSES`.
+    configured by `BACKTEST_WORKER_PROCESSES`, and is capped deployment-wide: at most
+    `BACKTEST_GLOBAL_MAX_RUNNING` (production: 4) runs execute at once however many processes or
+    hosts exist, decided inside the claim under one PostgreSQL advisory lock and ordered fairly by
+    each owner's executing runs — never by plan. The queue is bounded (`BACKTEST_QUEUE_MAX_QUEUED`,
+    `503 BACKTEST_QUEUE_FULL`). Do not add a second admission mechanism, and never sell priority
+    (`ai/architecture/backtest-execution.md`, "Global admission").
 15. A Monitor is a live `Strategy` plus a `StockList` plus `enabled` — no pinned version, no
     execution parameters, no user-configurable cadence — and it produces Signals, which are
     durable occurrences distinct from the Monitor itself. Each evaluated level has one durable
@@ -168,10 +173,12 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     (`canonicalProtectedTierEligibility`); a process that writes the product's stock cache must
     pass it, and the Redis designation set `stock-data:v2:protected-stocks` is only its derived
     record (also reconciled by `pnpm data:index-universe -- protect` and added by every universe
-    backtest). A touch never adds an LRU member. Do not add a second key family, namespace, loader
-    or copy for either tier, do not let a user's List designate anything, and do not turn Redis
-    memory into an admission or eviction criterion. Financial statements are not projected into
-    Redis at all: statement reads go to PostgreSQL.
+    backtest). A touch never adds an LRU member, and a backtest window reads a security that is
+    neither resident nor protected from PostgreSQL rather than re-admitting it
+    (`BACKTEST_NON_RESIDENT_FRAME_READ`), as the Monitor's end-of-day frames do. Do not add a
+    second key family, namespace, loader or copy for either tier, do not let a user's List
+    designate anything, and do not turn Redis memory into an admission or eviction criterion.
+    Financial statements are not projected into Redis at all: statement reads go to PostgreSQL.
     `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
     holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
     state — losing one grants allowance rather than destroying anything — so it is keyed by actor,
@@ -179,9 +186,10 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     second provider. See `ai/architecture/rate-limiting.md`.
 
 17. Commercial entitlements are an application-domain concern with one central definition in
-    `@intrinsic/contracts`. `docs/decisions/entitlements-v1.md` is the source of truth for every
-    plan, capability and limit; `ai/architecture/entitlements.md` is how it is implemented. Plan
-    (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal columns on `User`, both
+    `@intrinsic/contracts`. `docs/decisions/entitlements-v2.md` (with the sections of
+    `entitlements-v1.md` it keeps) is the source of truth for every plan, capability and limit;
+    `ai/architecture/entitlements.md` is how it is implemented. Plan
+    (`FREE | STARTER | PRO | PRO_PLUS`) and role (`USER | ADMIN`) are orthogonal columns on `User`, both
     resolved server-side from persisted state and never from client input; `GUEST` is derived from
     the absence of a session and never creates a row. Do not write `plan === "PRO"` in feature
     code — ask for a named capability or limit and enforce it with a semantic guard at the
@@ -189,10 +197,14 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     writing transaction under the shared per-user entitlement lock. A downgrade is never
     destructive: existing content stays readable and correctable, and compliance is derived rather
     than persisted. Billing may move the persisted plan and nothing else; it is never an input to
-    entitlement resolution, and request rate is never modelled as an entitlement.
+    entitlement resolution, and request rate is never modelled as an entitlement. "Unlimited" in the
+    matrix is the absence of a plan cap, never of infrastructure protection: a fair-use safeguard
+    (such as the enabled-Monitor ceiling) is configuration, applies to every plan alike, and is never
+    advertised or enforced as a plan number.
 
 18. Stripe is a billing provider and nothing else. `docs/decisions/stripe-billing-v1.md` is the source
-    of truth for the four-price catalog, the transition matrix and the billing-status policy;
+    of truth for the price catalog (six prices, every paid plan monthly and yearly, since
+    `entitlements-v2.md` §2), the transition matrix and the billing-status policy;
     `ai/architecture/billing.md` is how it is implemented. The direction is one-way — Stripe billing
     state, then persisted `User.plan`, then the entitlement resolver, then enforcement — and never
     reversed: no entitlement question is ever answered by consulting Stripe, and no entitlement value
@@ -203,7 +215,7 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     from a browser redirect, from an unverified webhook payload, or from a subscription-update request
     whose payment has not succeeded. `apps/api/src/billing/stripe.gateway.ts` is the only file that may
     import the Stripe SDK, and no client input may name a Stripe price, customer or subscription: the
-    whole accepted surface is one of four logical price keys. Stripe never touches `User.role`. Do not
+    whole accepted surface is one of the catalog's logical price keys. Stripe never touches `User.role`. Do not
     add credits, top-ups, trials, metered billing, a second paid subscription per user, or
     hand-written proration arithmetic.
 
@@ -248,7 +260,10 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     only per-user state (`UserBuiltInMonitorPreference`), and it never changes the shared
     evaluation (`docs/decisions/monitor-eod-v2.md` §12.4). A signed-in
     customer may still **duplicate** a built-in List or Strategy on purpose: the copy is ordinary
-    USER content they own, detached from the built-in and held to their plan. Deploys run
+    USER content they own, detached from the built-in and held to their plan. A built-in may be
+    **premium** (only SYSTEM content can be; every point-in-time universe is): readable by name and
+    size to everyone, its members or rules readable, duplicable and runnable only on a plan whose
+    `builtInContent.canUsePremium` is true (`entitlements-v2.md` §6). Deploys run
     `pnpm builtins:bootstrap`, which creates missing built-ins and never overwrites an
     administrator's edits; `pnpm builtins:reset` is the explicit restore. `docs/decisions/builtin-dashboard-signals-v1.md`
     is the decision; `docs/development/builtin-content.md` holds the catalog's verified sources.
@@ -361,7 +376,10 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     frozen run used — and every figure is the stored result through the owner page's own code. The
     public routes ask nobody who they are, so no plan, session or entitlement changes the answer, and
     they never start a run, read a stock history or ask the provider. A token is a working link: it
-    stays out of logs and error messages.
+    stays out of logs and error messages. The public demonstration shelf (`GET /demo-backtests`,
+    `entitlements-v2.md` §4) is the one place shared reports are listed: operator-featured
+    `DemoBacktest` rows, keyed by the share so a revoked link leaves the shelf with it, carrying
+    nothing the link does not already publish. There is still no directory or search of shares.
 
 ## Dependency rules
 

@@ -1,0 +1,48 @@
+# FactorSage edge (docs/production/RUNBOOK.md). Caddy obtains and renews certificates itself.
+{
+	email {$ACME_EMAIL}
+	# Structured access logs to stdout, collected with every other container's logs.
+	log {
+		output stdout
+		format json
+	}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+{$APP_DOMAIN} {
+	import common
+	reverse_proxy web:3000 {
+		health_uri /
+		health_interval 15s
+		# A deploy restarts the container; hold requests briefly rather than failing them.
+		lb_try_duration 10s
+	}
+}
+
+{$API_DOMAIN} {
+	import common
+	# Readiness names dependencies and their state: for the host's own monitoring, never the internet.
+	@internal path /health/ready
+	respond @internal 404
+	# The largest legitimate body is a List of 1,000 security ids or a Stripe webhook.
+	request_body {
+		max_size 1MB
+	}
+	# Two API processes (docker-compose.yml `api`, `api-2`): each request goes to the one with fewer
+	# in flight, and a restarting one is skipped.
+	reverse_proxy api:3001 api-2:3001 {
+		lb_policy least_conn
+		health_uri /health
+		health_interval 15s
+		lb_try_duration 10s
+	}
+}

@@ -3,13 +3,17 @@
 import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../lib/api/client";
+import { entitlementReason } from "../../../lib/api/entitlement-errors";
 import { fetchStrategy } from "../api/strategies-api";
 
 /**
  * `not-found` is a product state, not an error: a deleted strategy, or one belonging to another
  * user, answers 404 and deserves its own surface rather than a retry button that can never work.
+ * `locked` is one too: a premium built-in the viewer's plan does not include, whose rules the API
+ * withholds (`403 ENTITLEMENT_PREMIUM_CONTENT`).
  */
-export type StrategyStatus = "loading" | "ready" | "not-found" | "error";
+export type StrategyStatus =
+  "loading" | "ready" | "not-found" | "locked" | "error";
 
 export type StrategyState = {
   readonly status: StrategyStatus;
@@ -48,7 +52,9 @@ export function useStrategy(strategyId: string): StrategyState {
         setStatus(
           error instanceof ApiError && error.status === 404
             ? "not-found"
-            : "error",
+            : entitlementReason(error) === "ENTITLEMENT_PREMIUM_CONTENT"
+              ? "locked"
+              : "error",
         );
       });
 

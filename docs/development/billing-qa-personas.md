@@ -1,6 +1,6 @@
 # Billing QA personas
 
-Five accounts whose billing state is **real**: each holds a subscription that exists in Stripe test
+Six accounts whose billing state is **real**: each holds a subscription that exists in Stripe test
 mode — active, scheduled to cancel, past due, or ended — and each got its `BillingSubscription`
 mirror and its `User.plan` from the application's own reconciliation, not from a seeder.
 
@@ -23,22 +23,27 @@ held to exactly that.
 
 Defined once, in `packages/testing/src/billing-personas.ts`.
 
-| Persona                    | Handle             | Catalog price     | Stripe state                                        | `BillingSubscription`                         | `User.plan` |
-| -------------------------- | ------------------ | ----------------- | --------------------------------------------------- | --------------------------------------------- | ----------- |
-| `BILLING_STARTER_ACTIVE`   | `starter-active`   | `STARTER_YEARLY`  | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `STARTER`   |
-| `BILLING_PRO_ACTIVE`       | `pro-active`       | `PRO_MONTHLY`     | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO`       |
-| `BILLING_PRO_CANCELING`    | `pro-canceling`    | `PRO_YEARLY`      | `active`, cancellation scheduled for the period end | `ACTIVE`, `cancelAtPeriodEnd`, `cancelAt` set | `PRO`       |
-| `BILLING_STARTER_PAST_DUE` | `starter-past-due` | `STARTER_MONTHLY` | `past_due` after a renewal that failed              | `PAST_DUE`, `SUBSCRIPTION_IN_RECOVERY`        | `STARTER`   |
-| `BILLING_CANCELED`         | `canceled`         | `PRO_MONTHLY`     | `canceled` when its paid period ended               | `CANCELED`, `SUBSCRIPTION_TERMINATED`         | `FREE`      |
+| Persona                    | Handle             | Catalog price      | Stripe state                                        | `BillingSubscription`                         | `User.plan` |
+| -------------------------- | ------------------ | ------------------ | --------------------------------------------------- | --------------------------------------------- | ----------- |
+| `BILLING_STARTER_ACTIVE`   | `starter-active`   | `STARTER_YEARLY`   | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `STARTER`   |
+| `BILLING_PRO_ACTIVE`       | `pro-active`       | `PRO_MONTHLY`      | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO`       |
+| `BILLING_PRO_PLUS_ACTIVE`  | `pro-plus-active`  | `PRO_PLUS_YEARLY`  | `active`                                            | `ACTIVE`, `SUBSCRIPTION_ACTIVE`               | `PRO_PLUS`  |
+| `BILLING_PRO_CANCELING`    | `pro-canceling`    | `PRO_YEARLY`       | `active`, cancellation scheduled for the period end | `ACTIVE`, `cancelAtPeriodEnd`, `cancelAt` set | `PRO`       |
+| `BILLING_STARTER_PAST_DUE` | `starter-past-due` | `STARTER_MONTHLY`  | `past_due` after a renewal that failed              | `PAST_DUE`, `SUBSCRIPTION_IN_RECOVERY`        | `STARTER`   |
+| `BILLING_CANCELED`         | `canceled`         | `PRO_PLUS_MONTHLY` | `canceled` when its paid period ended               | `CANCELED`, `SUBSCRIPTION_TERMINATED`         | `FREE`      |
 
 - Addresses are `qa-billing-<handle>@factorsage.test`. They are stated in the registry rather than
   read from the environment because they are also the identity the Stripe fixtures are tagged with.
   `.test` is a reserved domain and can never be a mailbox.
 - `BILLING_STARTER_ACTIVE` is the baseline the brief left optional. It is included because it is the
-  control for `BILLING_STARTER_PAST_DUE` (same plan, different Stripe status, same entitlements), and
-  because with it the five personas bill **all four configured catalog prices**.
-- `BILLING_CANCELED` was a Pro subscriber, so the retained mirror says `PRO` while the account is
-  `FREE` — the most discriminating version of that state.
+  control for `BILLING_STARTER_PAST_DUE` (same plan, different Stripe status, same entitlements).
+- Between them the six personas bill **each of the six configured catalog prices exactly once**,
+  three monthly and three yearly (`billing-persona-registry.test.ts` holds that). The yearly ones —
+  Starter active, Pro+ active, Pro canceling — are charged the full year upfront at seeding.
+- `BILLING_PRO_PLUS_ACTIVE` is the one active persona on the highest tier. It is a billing persona
+  only: there is no `PRO_PLUS_USER` entitlement persona yet (`entitlements-v2.md` §11).
+- `BILLING_CANCELED` was a Pro+ subscriber, so the retained mirror says `PRO_PLUS` while the account
+  is `FREE` — the most discriminating version of that state.
 - The expectations in the registry are **literals** from the decision document.
   `billing-persona-registry.test.ts` then checks them against `resolveEffectivePlan`, so a persona
   cannot declare an outcome the product's one plan decision does not produce.
@@ -63,7 +68,7 @@ Two consequences worth knowing:
   no longer holds the paid slot, and the browser suite asserts it shows no "Cancels on …", no
   renewal date and no cadence for `BILLING_CANCELED`.
 - "No subscription" is what an entitlement persona is, and what a billing persona becomes after
-  cleanup. It is deliberately not a sixth billing persona: there is no Stripe state to build.
+  cleanup. It is deliberately not a seventh billing persona: there is no Stripe state to build.
 
 ## 3. How a persona's state is produced
 
@@ -144,7 +149,7 @@ validation suite and the browser suite read. A fixture belongs to one account in
 the same persona seeded into both is two independent fixtures.
 
 **Environment.** Stripe must be configured with a test-mode key (`STRIPE_SECRET_KEY`,
-`STRIPE_WEBHOOK_SECRET`, the four `STRIPE_PRICE_*`); in a Claude cloud session run the commands
+`STRIPE_WEBHOOK_SECRET`, the six `STRIPE_PRICE_*`); in a Claude cloud session run the commands
 through `scripts/cloud/with-stripe.sh`. One optional variable:
 
 | Variable              | Meaning                                                                                                                                                                                                              |
@@ -173,7 +178,7 @@ Every refusal happens before a Stripe or database client exists.
    and not the development one.
 4. **The catalog is verified first.** `pnpm qa:billing:seed` runs the same check as
    `pnpm billing:verify-catalog` in-process and creates nothing if it finds a problem.
-5. **Only the four configured prices.** The seed resolves a price through `BillingCatalog`, and the
+5. **Only the three configured prices.** The seed resolves a price through `BillingCatalog`, and the
    fixture gateway independently refuses a subscription on any other price id.
 6. **The shared catalog cannot be touched.** The fixture gateway has no product or price operation,
    and the one thing it can delete is a Test Clock. There is no "delete this customer" and no
@@ -260,7 +265,7 @@ tooling created in the Stripe account, which is how to clear what another databa
 account or an interrupted run left. An ambiguous fixture is refused in every scope, the rest is
 still removed, and the command exits non-zero.
 
-It does not delete or change: the four catalog prices and their products; any customer,
+It does not delete or change: the three catalog prices and their products; any customer,
 subscription or clock it did not create; the persona `User` rows, which survive as ordinary `FREE`
 accounts so a signed-in browser stays signed in; any other account.
 
@@ -302,7 +307,7 @@ database, then `scripts/cloud/stack.sh up dev --stripe`.
 
 | Suite                                                                            | Stripe           | What it proves                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `billing-personas/billing-persona-registry.test.ts`                              | none             | The five definitions, as literals; that every expectation is what `resolveEffectivePlan` produces; all four prices covered; separate from the entitlement personas.                                                                                                                                      |
+| `billing-personas/billing-persona-registry.test.ts`                              | none             | The six definitions, as literals; that every expectation is what `resolveEffectivePlan` produces; all three prices covered; separate from the entitlement personas.                                                                                                                                      |
 | `billing-personas/billing-persona-fixtures.test.ts`                              | none             | The ownership rules: clock name format, metadata, owned / foreign / ambiguous, convergence in both of Stripe's cancellation representations, and what a cleanup may delete in each scope.                                                                                                                |
 | `billing-personas/billing-persona-environment.test.ts`                           | none             | Every refusal: live and malformed keys, production, non-local and non-test databases, the password policy, unknown arguments.                                                                                                                                                                            |
 | `billing-personas/billing-persona-boundary.test.ts`                              | none             | Read from the source: the tooling writes no mirror and no plan; the Stripe SDK is imported by one file; nothing can change the catalog or delete anything but a Test Clock; the entitlement personas do not depend on Stripe.                                                                            |
@@ -319,7 +324,22 @@ tooling "creates" offline is read by the real reconciler through the product's o
 
 ## 10. Verified against the Stripe sandbox
 
+**V2 catalog, 2026-10-24** — the cloud sandbox (test mode), the six V2 prices, the four V1 prices
+listed as retired: `STRIPE_BILLING_PERSONAS=true scripts/cloud/with-stripe.sh pnpm
+test:billing:personas` passed 47 / 47 — each persona built on its own Test Clock on the price in §1
+(three of them yearly, each charged its full year at seeding), reconciled by the application, left
+alone by a second run, and the cleanup proven on a seventh — and `pnpm test:e2e:billing:personas`
+read every persona's billing page, 24 / 24. The table below is the earlier V1 run.
+
 Local FactorSage sandbox (test mode), 2026-10-10, pinned API version `2026-08-26.dahlia`.
+
+> **History, recorded against the V1 catalog:** five personas, `BILLING_STARTER_ACTIVE` and
+> `BILLING_PRO_CANCELING` then on the Starter and Pro yearly prices, and no Pro+ persona. It must be
+> re-run for the V2 catalog — `pnpm qa:billing:seed`, `pnpm qa:billing:status -- --check`, then
+> `STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas` — so that all six personas, the Pro+ one
+> included, are observed on the six V2 prices. A fixture built under the V1 catalog is on a
+> price that is no longer configured, so `pnpm qa:billing:status` reports it `STRIPE_DRIFT` and the
+> next seed rebuilds it.
 
 | Persona                    | Stripe, observed                                                       | FactorSage, observed                                                                |
 | -------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |

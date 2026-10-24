@@ -9,6 +9,7 @@ import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { BacktestSharingService } from "./backtest-sharing.service";
 import { BacktestsController } from "./backtests.controller";
 import { BacktestsService } from "./backtests.service";
+import { DemoBacktestsController } from "./demo-backtests.controller";
 import { SharedBacktestsController } from "./shared-backtests.controller";
 import {
   BACKTESTS_LOGGER,
@@ -17,7 +18,11 @@ import {
 
 @Module({
   imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
-  controllers: [BacktestsController, SharedBacktestsController],
+  controllers: [
+    BacktestsController,
+    SharedBacktestsController,
+    DemoBacktestsController,
+  ],
   providers: [
     {
       provide: BACKTESTS_LOGGER,

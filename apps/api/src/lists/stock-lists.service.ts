@@ -20,6 +20,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   SYSTEM_FIRST_ORDER,
   assertMutable,
+  assertPremiumAccessible,
   auditOf,
   mutableWhere,
   ownershipResponse,
@@ -146,6 +147,14 @@ function maintainedUniverse(list: {
   return list.ownership === "SYSTEM"
     ? pointInTimeIndexUniverseForList(list.systemKey)
     : null;
+}
+
+/** How a premium refusal names this List: a point-in-time universe, or a premium predefined List. */
+function premiumKindOf(list: {
+  ownership: "USER" | "SYSTEM";
+  systemKey: string | null;
+}): "LIST" | "INDEX_UNIVERSE" {
+  return maintainedUniverse(list) ? "INDEX_UNIVERSE" : "LIST";
 }
 
 /**
@@ -513,6 +522,8 @@ export class StockListsService {
           where: { id: listId, ...readableWhere(user) },
           select: {
             ownership: true,
+            premium: true,
+            systemKey: true,
             description: true,
             items: {
               orderBy: ITEMS_ORDER,
@@ -530,6 +541,9 @@ export class StockListsService {
         if (!source) {
           throw new StockListNotFoundError();
         }
+        // A copy is ordinary content the customer owns, so the premium gate has to stand at the
+        // copy: otherwise duplicating first would be the way around it (entitlements-v2 §6).
+        assertPremiumAccessible(source, user, premiumKindOf(source));
         this.entitlements.assertListSymbolLimit(user, {
           current: 0,
           adding: source.items.length,
@@ -589,6 +603,18 @@ export class StockListsService {
     viewer: ContentViewer,
     listId: string,
   ): Promise<StockListDetailResponse> {
+    // A premium built-in's membership is the premium content itself
+    // (`docs/decisions/entitlements-v2.md` §6), so it is decided before a single member is loaded.
+    // The collection still names it, with its size, and marks it `locked`.
+    const head = await this.prisma.stockList.findFirst({
+      where: { id: listId, ...readableWhere(viewer) },
+      select: { ownership: true, premium: true, systemKey: true },
+    });
+    if (!head) {
+      throw new StockListNotFoundError();
+    }
+    assertPremiumAccessible(head, viewer, premiumKindOf(head));
+
     const list = await this.prisma.stockList.findFirst({
       where: { id: listId, ...readableWhere(viewer) },
       include: { items: { include: ITEM_INCLUDE, orderBy: ITEMS_ORDER } },

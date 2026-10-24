@@ -28,6 +28,11 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
+import {
+  PremiumBadge,
+  PremiumUpgradeHint,
+  premiumPlansLabel,
+} from "../../billing/components/PremiumContent";
 import { deleteStockList, duplicateStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
@@ -193,18 +198,31 @@ export function ListsPage() {
         header: "Name",
         cardRole: "identity",
         render: (list) => (
-          <Link className={styles.nameLink} href={`/lists/${list.id}`}>
-            <span className={styles.name}>{list.name}</span>
-            {list.description ? (
-              <span className={styles.description}>{list.description}</span>
-            ) : null}
-            {list.universe ? (
-              <span className={styles.description} data-testid="list-universe">
-                Point-in-time · {list.universe.distinctSecurities} stocks over
-                time, up to {list.universe.peakSimultaneousMembers} at once
+          <>
+            <Link className={styles.nameLink} href={`/lists/${list.id}`}>
+              <span className={styles.nameRow}>
+                <span className={styles.name}>{list.name}</span>
+                {list.premium ? (
+                  <PremiumBadge locked={list.locked === true} size="small" />
+                ) : null}
               </span>
-            ) : null}
-          </Link>
+              {list.description ? (
+                <span className={styles.description}>{list.description}</span>
+              ) : null}
+              {list.universe ? (
+                <span
+                  className={styles.description}
+                  data-testid="list-universe"
+                >
+                  Point-in-time · {list.universe.distinctSecurities} stocks over
+                  time, up to {list.universe.peakSimultaneousMembers} at once
+                </span>
+              ) : null}
+            </Link>
+            {/* A locked list is still named, with its size, for discovery; what it takes to use
+                it is said under it. Outside the name link, which stays the row's first link. */}
+            {list.locked ? <PremiumUpgradeHint /> : null}
+          </>
         ),
       },
       {
@@ -274,10 +292,11 @@ export function ListsPage() {
                   ]
                 : []),
               // Any list the viewer can read can be copied into one they own, a built-in
-              // included; a Guest is asked for an account first.
+              // included; a Guest is asked for an account first. A locked premium list is not
+              // read in full on this plan, so it cannot be copied either.
               {
                 label: "Duplicate",
-                disabled: !gate.resolved,
+                disabled: !gate.resolved || list.locked === true,
                 onSelect: () =>
                   gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
                     setDialog({ kind: "duplicate", list }),
@@ -395,7 +414,13 @@ export function ListsPage() {
           <CollectionSection
             density="compact"
             title="Built-in lists"
-            caption="FactorSage's own universes. Everyone can read and backtest them; only FactorSage changes them."
+            caption={
+              // "Everyone can backtest them" stops being true of a premium list, so the caption
+              // says which ones it covers once there is one.
+              builtIn.some((list) => list.premium)
+                ? `FactorSage's own universes, changed only by FactorSage. Everyone can read and backtest the standard ones; premium lists are included in ${premiumPlansLabel()}.`
+                : "FactorSage's own universes. Everyone can read and backtest them; only FactorSage changes them."
+            }
             label="Built-in lists"
             noun="lists"
             testId="built-in-lists"

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BACKTEST_NOT_CANCELLABLE_CODE,
   BACKTEST_PENDING_POLL_INTERVAL_MS,
   BACKTEST_RUNNING_POLL_INTERVAL_MS,
   isTerminalBacktestStatus,
@@ -8,12 +9,17 @@ import {
   type BacktestLiveSnapshotResponse,
   type BacktestMilestoneResponse,
   type BacktestProgressResponse,
+  type BacktestQueueStateResponse,
   type BacktestRunDetailResponse,
   type BacktestRunStatus,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../lib/api/client";
-import { fetchBacktestProgress, fetchBacktestRun } from "../api/backtests-api";
+import {
+  cancelBacktestRun,
+  fetchBacktestProgress,
+  fetchBacktestRun,
+} from "../api/backtests-api";
 
 /**
  * `not-found` is a product state, not an error: a run belonging to another user answers exactly
@@ -41,10 +47,57 @@ export type BacktestRunState = {
    */
   readonly milestones: readonly BacktestMilestoneResponse[];
   readonly failure: BacktestFailureResponse | null;
+  /**
+   * Where a queued run stands in the deployment-wide queue, from the newest answer; `null` once it
+   * executes, and for every other state.
+   */
+  readonly queue: BacktestQueueStateResponse | null;
+  /**
+   * The owner asked to stop the run and its worker has not stopped yet: the API reports the
+   * pending request, or this page's own request was accepted. Always `false` once the run is
+   * terminal.
+   */
+  readonly cancelling: boolean;
+  /**
+   * Asks the API to stop the run and applies its answer in place: a queued run is `CANCELLED` at
+   * once, an executing one reports `cancelling` until its worker stops it. A run that finished
+   * first is read again, so the page shows what it finished as. Any other failure is thrown for
+   * the caller to word.
+   */
+  readonly cancel: () => Promise<BacktestCancelOutcome>;
   /** True while the page is still asking for checkpoints. */
   readonly polling: boolean;
   readonly retry: () => void;
 };
+
+/** What a cancellation request came to. */
+export type BacktestCancelOutcome =
+  /** The run is `CANCELLED`: it was queued, or it had already been stopped. */
+  | "cancelled"
+  /** The request is recorded; the run stops at its worker's next checkpoint. */
+  | "cancelling"
+  /** The run completed or failed before it could be stopped, and has been read again. */
+  | "already-finished";
+
+/**
+ * What the running poll loop lets the rest of the hook do to it. It exists only while one loop is
+ * live, so nothing outside can act on a run the page has already left.
+ */
+type PollSession = {
+  /** Applies a run detail read outside the loop, by the loop's own ordering rules. */
+  readonly apply: (detail: BacktestRunDetailResponse) => void;
+  /** Reads the detail again in the background and applies it; a failure changes nothing. */
+  readonly refresh: () => Promise<void>;
+};
+
+/** The run finished before it could be stopped (`409 BACKTEST_NOT_CANCELLABLE`). */
+function isNotCancellable(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === BACKTEST_NOT_CANCELLABLE_CODE
+  );
+}
 
 /**
  * A running simulation checkpoints every few simulated days, so about one request a second keeps
@@ -81,6 +134,10 @@ const MAX_POLL_BACKOFF_MS = 60_000;
  *   terminal run never reopens;
  * - a transient failure is invisible: the rendered page stays exactly as it is and the next tick
  *   retries, because a backtest that is minutes long must not blank out over one lost request.
+ *
+ * A cancellation's answer is one more reading of the same run, and enters through the loop's own
+ * rules rather than beside them: an answer older than what is on screen is dropped, and a terminal
+ * one stops the polling exactly as a terminal checkpoint does.
  */
 export function useBacktestRun(runId: string): BacktestRunState {
   const [loadStatus, setLoadStatus] =
@@ -91,7 +148,13 @@ export function useBacktestRun(runId: string): BacktestRunState {
   );
   const [polling, setPolling] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // The run whose cancellation this page asked for and the API accepted. Keyed by run, so moving to
+  // another run never carries the request over.
+  const [cancelRequestedFor, setCancelRequestedFor] = useState<string | null>(
+    null,
+  );
   const latestRequestRef = useRef(0);
+  const sessionRef = useRef<PollSession | null>(null);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
 
   useEffect(() => {
@@ -103,8 +166,8 @@ export function useBacktestRun(runId: string): BacktestRunState {
     let appliedSequence = -1;
     // The lifecycle state the applied checkpoint reported; it decides the next tick's cadence.
     let appliedStatus: BacktestRunStatus = "QUEUED";
-    // A completed or failed run is final. Once one is applied nothing may reopen it, including an
-    // in-flight non-terminal response that resolves afterwards.
+    // A completed, failed or cancelled run is final. Once one is applied nothing may reopen it,
+    // including an in-flight non-terminal response that resolves afterwards.
     let terminal = false;
 
     const superseded = () =>
@@ -172,6 +235,44 @@ export function useBacktestRun(runId: string): BacktestRunState {
       schedule();
     };
 
+    /**
+     * A detail read outside the loop — a cancellation's answer, or the re-read after a refused
+     * one. It is at least as new as anything the loop applied unless its sequence says otherwise,
+     * so it replaces the checkpoint as a whole; a terminal one ends the polling here.
+     */
+    const apply = (detail: BacktestRunDetailResponse) => {
+      if (
+        superseded() ||
+        terminal ||
+        detail.id !== runId ||
+        detail.progress.sequence < appliedSequence
+      ) {
+        return;
+      }
+      appliedSequence = detail.progress.sequence;
+      appliedStatus = detail.status;
+      setRun(detail);
+      setProgress(null);
+      if (isTerminalBacktestStatus(detail.status)) {
+        terminal = true;
+        if (timer !== undefined) {
+          clearTimeout(timer);
+        }
+        setPolling(false);
+      }
+    };
+
+    const refresh = async () => {
+      try {
+        apply(await fetchBacktestRun(runId, { signal: controller.signal }));
+      } catch {
+        // The loop is still polling and reaches the run's real state on its own.
+      }
+    };
+
+    const session: PollSession = { apply, refresh };
+    sessionRef.current = session;
+
     setLoadStatus("loading");
     fetchBacktestRun(runId, { signal: controller.signal })
       .then((detail) => {
@@ -207,13 +308,44 @@ export function useBacktestRun(runId: string): BacktestRunState {
       if (timer !== undefined) {
         clearTimeout(timer);
       }
+      if (sessionRef.current === session) {
+        sessionRef.current = null;
+      }
     };
   }, [runId, attempt]);
+
+  const cancel = useCallback(async (): Promise<BacktestCancelOutcome> => {
+    let detail: BacktestRunDetailResponse;
+    try {
+      detail = await cancelBacktestRun(runId);
+    } catch (error: unknown) {
+      if (isNotCancellable(error)) {
+        // It completed or failed first. Read it again, so the page shows what it finished as
+        // instead of a run that still offers to be stopped.
+        await sessionRef.current?.refresh();
+        return "already-finished";
+      }
+      throw error;
+    }
+    sessionRef.current?.apply(detail);
+    if (detail.status === "CANCELLED") {
+      return "cancelled";
+    }
+    if (isTerminalBacktestStatus(detail.status)) {
+      return "already-finished";
+    }
+    setCancelRequestedFor(runId);
+    return "cancelling";
+  }, [runId]);
 
   const status = progress?.status ?? run?.status ?? null;
   // The newest checkpoint wins as a whole rather than field by field: a checkpoint that clears the
   // worker's message must not leave the one the detail was fetched with on screen.
   const checkpoint = progress ?? run?.progress ?? null;
+  const terminal = status !== null && isTerminalBacktestStatus(status);
+  // The same rule for the two facts both payloads carry: the newest answer's, including when it
+  // deliberately has none.
+  const reported = progress ?? run;
 
   return {
     loadStatus,
@@ -234,6 +366,13 @@ export function useBacktestRun(runId: string): BacktestRunState {
         ? (progress?.milestones ?? run?.milestones ?? [])
         : (run?.milestones ?? []),
     failure: progress?.failure ?? run?.failure ?? null,
+    queue: status === "QUEUED" ? (reported?.queue ?? null) : null,
+    // A checkpoint read just before the request was recorded carries no `cancellation`; the
+    // accepted request still stands, so it is not allowed to flicker the page back to "Cancel".
+    cancelling:
+      !terminal &&
+      (reported?.cancellation !== undefined || cancelRequestedFor === runId),
+    cancel,
     polling,
     retry,
   };

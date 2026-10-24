@@ -207,6 +207,20 @@ export const ENTITLEMENT_FIXTURES: Readonly<
         enabled: true,
         createdAt: "2026-01-03T00:00:00.000Z",
       },
+      {
+        key: "four",
+        name: `${ENTITLEMENT_FIXTURE_PREFIX}Starter Monitor 4`,
+        listKey: "small",
+        enabled: true,
+        createdAt: "2026-01-04T00:00:00.000Z",
+      },
+      {
+        key: "five",
+        name: `${ENTITLEMENT_FIXTURE_PREFIX}Starter Monitor 5`,
+        listKey: "small",
+        enabled: true,
+        createdAt: "2026-01-05T00:00:00.000Z",
+      },
     ],
     inFlightRuns: [{ key: "running", listKey: "small", years: 1 }],
     completedRuns: [],
@@ -221,13 +235,13 @@ export const ENTITLEMENT_FIXTURES: Readonly<
         description: "Past every STARTER limit and inside PRO's.",
       },
     ],
-    // Four enabled Monitors: past STARTER's capacity of three, comfortably inside PRO's ten.
+    // Six enabled Monitors: past STARTER's capacity of five, and PRO has no numerical cap
+    // (`docs/decisions/entitlements-v2.md` §3).
     //
-    // Exactly **one** run is pinned in flight, and the count is the whole point. It is what lets a
-    // spec show PRO accepting a second concurrent run where FREE and STARTER are refused, while
-    // still leaving PRO's other slot free — this is also the default development account and the
-    // persona every other E2E spec signs in as, so pinning both would break the backtest journey
-    // that submits one of its own.
+    // **No** run is pinned in flight, and that is the whole point. PRO runs one backtest at a time
+    // (Pro+ runs two), and this is the default development account and the persona every other E2E
+    // spec signs in as: a pinned run would hold its only slot and refuse every backtest journey
+    // that submits one of its own. The "already running" refusal is FREE's and STARTER's to show.
     monitors: [
       {
         key: "one",
@@ -257,8 +271,22 @@ export const ENTITLEMENT_FIXTURES: Readonly<
         enabled: true,
         createdAt: "2026-01-04T00:00:00.000Z",
       },
+      {
+        key: "five",
+        name: `${ENTITLEMENT_FIXTURE_PREFIX}Pro Monitor 5`,
+        listKey: "wide",
+        enabled: true,
+        createdAt: "2026-01-05T00:00:00.000Z",
+      },
+      {
+        key: "six",
+        name: `${ENTITLEMENT_FIXTURE_PREFIX}Pro Monitor 6`,
+        listKey: "wide",
+        enabled: true,
+        createdAt: "2026-01-06T00:00:00.000Z",
+      },
     ],
-    inFlightRuns: [{ key: "running", listKey: "wide", years: 1 }],
+    inFlightRuns: [],
     completedRuns: [],
   },
 
@@ -330,7 +358,8 @@ export const ENTITLEMENT_FIXTURES: Readonly<
       },
     ],
     inFlightRuns: [],
-    // Twenty years over eighty-three symbols: a configuration FREE can neither rerun nor rebuild.
+    // Twenty years over eighty-three symbols: inside every plan's thirty years, so FREE refuses the
+    // rerun for its list alone — eighty-three symbols past its ten.
     completedRuns: [{ key: "historic", listKey: "oversized", years: 20 }],
   },
 };

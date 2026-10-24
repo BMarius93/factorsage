@@ -14,7 +14,8 @@ import { qaPersona } from "../utils/env";
  * if there was one. Nothing here reads stock data, so the API has no reason to reach FMP either.
  */
 
-const PLANS = ["FREE", "STARTER", "PRO"] as const;
+/** Every plan the comparison offers, in the order its cards render: cheapest first. */
+const PLANS = ["FREE", "STARTER", "PRO", "PRO_PLUS"] as const;
 
 type Traffic = { readonly external: string[]; readonly billing: string[] };
 
@@ -55,7 +56,15 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(overflow.clientWidth);
 }
 
-const usd = (minorUnits: number) => `$${minorUnits / 100}`;
+/** A catalog amount as a card prints it: `1900` -> `$19`, `1408` -> `$14.08`, `179000` -> `$1,790`. */
+const usd = (minorUnits: number) => {
+  const amount = minorUnits / 100;
+  const digits = Number.isInteger(amount) ? 0 : 2;
+  return `$${amount.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+};
 
 test.describe("guest pricing", () => {
   test("opens without an account and shows the canonical catalog", async ({
@@ -67,19 +76,51 @@ test.describe("guest pricing", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Pricing" }),
     ).toBeVisible();
-    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
+    const cards = page.locator('[data-testid^="plan-card-"]');
+    await expect(cards).toHaveCount(PLANS.length);
+    expect(
+      await cards.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-testid")),
+      ),
+    ).toEqual(PLANS.map((plan) => `plan-card-${plan}`));
+    // Monthly prices first, straight from the catalog.
     for (const plan of PAID_PLANS) {
-      await expect(page.getByTestId(`plan-price-${plan}`)).toContainText(
-        usd(BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits),
+      await expect(page.getByTestId(`plan-price-${plan}`)).toHaveText(
+        `${usd(BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits)}/ month`,
       );
     }
+    // Yearly: the effective monthly cost, and the exact annual amount billed upfront.
+    await page.getByRole("radio", { name: /Yearly/ }).check();
+    for (const plan of PAID_PLANS) {
+      const yearly = BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits;
+      await expect(page.getByTestId(`plan-price-${plan}`)).toHaveText(
+        `${usd(Math.round(yearly / 12))}/ month`,
+      );
+      await expect(page.getByTestId(`plan-price-note-${plan}`)).toHaveText(
+        `Billed annually: ${usd(yearly)} upfront`,
+      );
+      await expect(page.getByTestId(`plan-price-saving-${plan}`)).toHaveText(
+        "Save 25%",
+      );
+    }
+    await page.getByRole("radio", { name: /Monthly/ }).check();
 
-    await page.getByRole("radio", { name: "Yearly" }).check();
-    for (const plan of PAID_PLANS) {
-      await expect(page.getByTestId(`plan-price-${plan}`)).toContainText(
-        usd(BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits),
-      );
-    }
+    // Pro is the best value; Pro+ is the advanced tier, and says how many runs go at once.
+    await expect(page.getByTestId("plan-recommended-badge")).toHaveCount(1);
+    await expect(
+      page.getByTestId("plan-card-PRO").getByTestId("plan-recommended-badge"),
+    ).toHaveText("Best Value");
+    await expect(page.getByTestId("plan-card-PRO")).toHaveAttribute(
+      "data-emphasis",
+      "recommended",
+    );
+    await expect(page.getByTestId("plan-tagline-PRO_PLUS")).toHaveText(
+      "Advanced Research",
+    );
+    await expect(
+      page.getByTestId("plan-feature-PRO_PLUS-backtest-concurrency"),
+    ).toContainText("Parallel Backtests: 2 at a time");
+    await expect(page.getByTestId("plans-footnote")).toBeVisible();
 
     // Reachable from the guest topbar as well as by URL.
     await expect(page.getByTestId("pricing-link")).toHaveAttribute(
@@ -179,12 +220,13 @@ test.describe("guest pricing", () => {
     await openPricing(page);
     await expectNoHorizontalScroll(page);
 
-    // Three abreast: the cards share one top edge.
+    // Four abreast: the cards share one top edge.
     const tops = await page
       .locator('[data-testid^="plan-card-"]')
       .evaluateAll((cards) =>
         cards.map((card) => Math.round(card.getBoundingClientRect().y)),
       );
+    expect(tops).toHaveLength(PLANS.length);
     expect(new Set(tops).size).toBe(1);
   });
 
@@ -200,9 +242,10 @@ test.describe("guest pricing", () => {
       .evaluateAll((cards) =>
         cards.map((card) => Math.round(card.getBoundingClientRect().x)),
       );
-    expect(lefts).toHaveLength(3);
+    expect(lefts).toHaveLength(PLANS.length);
     expect(new Set(lefts).size).toBe(1);
-    await expect(page.getByRole("radio", { name: "Yearly" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /Yearly/ })).toBeVisible();
+    await expect(page.getByTestId("plans-footnote")).toBeVisible();
     await expect(page.getByTestId("pricing-link")).toBeVisible();
 
     await page.getByTestId("plan-action-PRO").click();

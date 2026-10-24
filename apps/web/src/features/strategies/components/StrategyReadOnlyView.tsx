@@ -9,6 +9,7 @@ import { useDocumentTitle } from "../../../lib/use-document-title";
 import page from "../../../components/ui/page.module.css";
 import { useStrategyScopeNames } from "../../alternative-data/hooks/use-scope-names";
 import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
+import { PremiumBadge } from "../../billing/components/PremiumContent";
 import { LogicPreview } from "./LogicPreview";
 
 /**
@@ -36,13 +37,18 @@ export function StrategyReadOnlyView({
           {...(strategy.description ? { lead: strategy.description } : {})}
           badges={
             strategy.ownership === "SYSTEM" ? (
-              <StatusBadge
-                tone="neutral"
-                variant="outline"
-                testId="built-in-badge"
-              >
-                Built-in
-              </StatusBadge>
+              <>
+                <StatusBadge
+                  tone="neutral"
+                  variant="outline"
+                  testId="built-in-badge"
+                >
+                  Built-in
+                </StatusBadge>
+                {/* Readable in full here, so never locked: a locked strategy never reaches this
+                    view (`StrategyEditor`). */}
+                {strategy.premium ? <PremiumBadge /> : null}
+              </>
             ) : undefined
           }
           actions={

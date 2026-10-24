@@ -116,6 +116,14 @@ section *Remaining limitations* below is the honest list of what that leaves out
       introduced. Amounts still come from `BILLING_CATALOG` through `plan-presentation.ts`; the
       disclosure states that an annual plan is charged as the annual amount, not twelve monthly
       ones, and restates no figure of its own.
+      **Re-check (2026-10-24, annual billing restored):** a yearly card now leads with its
+      effective monthly cost ($14.08 / $36.58 / $149.17) and states the exact annual amount
+      directly under it ("Billed annually: $169 upfront"), with "Save 25%". The Terms draft
+      (`packages/contracts/src/legal-documents.ts`) still says "An annual plan is presented as
+      its annual amount." The annual amount is always shown, but it is no longer the headline
+      figure; counsel should confirm that sentence or replace it (for example: "An annual plan
+      shows its monthly equivalent and its full annual amount, which is charged upfront"). The
+      text is unchanged here, because legal wording is not this work's to decide.
 - [ ] **Durable contract confirmation references the exact purchased terms and handles delivery
       failure.** Not implemented: there is no approved sender or monitored mailbox (`O2`), and a
       confirmation email that cannot be delivered is worse than none. The accepted Terms version

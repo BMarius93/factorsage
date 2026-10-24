@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { LEGAL_OWNER_FACT_LIST, legalDocument } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import {
@@ -33,6 +35,21 @@ describe("legal owner facts", () => {
     for (const fact of LEGAL_OWNER_FACT_LIST) {
       expect(RESOLVED_OWNER_FACT_SOURCES[fact.id].variable, fact.id).toBe(
         fact.envVariable,
+      );
+    }
+  });
+
+  it("is a build argument of the production web image, so a release build can receive it", () => {
+    // Docker passes a `--build-arg` to `next build` only when the Dockerfile declares it; without
+    // the declaration a release build could never resolve the fact, and would refuse to compile.
+    // Resolved from the package root: Vitest runs with `apps/web` as its working directory.
+    const dockerfile = readFileSync(
+      resolve(process.cwd(), "../../docker/production.Dockerfile"),
+      "utf8",
+    );
+    for (const fact of LEGAL_OWNER_FACT_LIST) {
+      expect(dockerfile, fact.envVariable).toMatch(
+        new RegExp(`^ARG ${fact.envVariable}$`, "m"),
       );
     }
   });

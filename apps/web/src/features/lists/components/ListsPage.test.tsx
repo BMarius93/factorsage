@@ -516,3 +516,102 @@ describe("ListsPage", () => {
     });
   });
 });
+
+describe("ListsPage premium built-ins", () => {
+  const standard = summary("builtin-standard", "Recent Market Debuts", {
+    ownership: "SYSTEM",
+    systemKey: "recent-market-debuts",
+    canEdit: false,
+    itemCount: 10,
+  });
+  /** The S&P 500 universe as the API sends it to a plan without premium content. */
+  const lockedUniverse = summary("sp500-pit", "S&P 500 — Historical PIT", {
+    ownership: "SYSTEM",
+    systemKey: "sp500-historical-pit",
+    canEdit: false,
+    premium: true,
+    locked: true,
+    itemCount: 731,
+    universe: {
+      kind: "POINT_IN_TIME_INDEX",
+      indexKey: "SP500",
+      distinctSecurities: 731,
+      peakSimultaneousMembers: 506,
+      currentMembers: 503,
+      membershipFloor: "1996-01-02",
+      syncedAt: "2026-10-17T10:00:00.000Z",
+    },
+  });
+
+  it("names a locked premium list with its size, marks it locked, and says which plans include it", async () => {
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
+    fetchStockListsMock.mockResolvedValue([standard, lockedUniverse]);
+    render(<ListsPage />);
+
+    const section = await screen.findByTestId("built-in-lists");
+    const badges = within(section).getAllByTestId("premium-badge");
+    // Only the premium list carries the badge; the standard built-in reads as before.
+    expect(badges).toHaveLength(1);
+    const badge = badges[0] as HTMLElement;
+    expect(badge.getAttribute("data-locked")).toBe("true");
+    expect(badge.getAttribute("data-tone")).toBe("blocked");
+    expect(badge.textContent).toBe("Premium, locked");
+    // Still named, with its size, for discovery — and the way to it is said under it.
+    expect(section.textContent).toContain("S&P 500 — Historical PIT");
+    expect(section.textContent).toContain("731 stocks over time");
+    const hint = within(section).getByTestId("premium-upgrade-hint");
+    expect(hint.textContent).toBe("Included in Pro and Pro+. See plans");
+    expect(
+      within(hint)
+        .getByRole("link", { name: "See plans" })
+        .getAttribute("href"),
+    ).toBe("/pricing");
+    // The caption no longer claims everyone can backtest every built-in.
+    expect(section.textContent).toContain(
+      "premium lists are included in Pro and Pro+",
+    );
+  });
+
+  it("offers no copy of a locked premium list", async () => {
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
+    fetchStockListsMock.mockResolvedValue([lockedUniverse]);
+    render(<ListsPage />);
+    await screen.findByTestId("built-in-lists");
+
+    const trigger = await findOverflowTrigger("S&P 500 — Historical PIT");
+    await userEvent.click(trigger);
+    const popup = document.getElementById(
+      trigger.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    const duplicate = within(popup).getByRole("button", { name: "Duplicate" });
+    expect(duplicate.hasAttribute("disabled")).toBe(true);
+    await userEvent.click(duplicate);
+    expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+    expect(duplicateStockListMock).not.toHaveBeenCalled();
+  });
+
+  it("marks premium without a lock where the plan includes it, and still offers the copy", async () => {
+    fetchStockListsMock.mockResolvedValue([
+      { ...lockedUniverse, locked: undefined },
+    ]);
+    render(<ListsPage />);
+
+    const section = await screen.findByTestId("built-in-lists");
+    const badge = within(section).getByTestId("premium-badge");
+    expect(badge.textContent).toBe("Premium");
+    expect(badge.getAttribute("data-locked")).toBeNull();
+    expect(within(section).queryByTestId("premium-upgrade-hint")).toBeNull();
+    expect(await menuActions("S&P 500 — Historical PIT")).toEqual([
+      "Duplicate",
+    ]);
+    const trigger = await findOverflowTrigger("S&P 500 — Historical PIT");
+    const popup = document.getElementById(
+      trigger.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    expect(
+      within(popup)
+        .getByRole("button", { name: "Duplicate" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+});

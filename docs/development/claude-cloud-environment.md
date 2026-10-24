@@ -151,6 +151,9 @@ SANDBOX_STRIPE_PRICE_STARTER_MONTHLY=<price_…>
 SANDBOX_STRIPE_PRICE_STARTER_YEARLY=<price_…>
 SANDBOX_STRIPE_PRICE_PRO_MONTHLY=<price_…>
 SANDBOX_STRIPE_PRICE_PRO_YEARLY=<price_…>
+SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY=<price_…>
+SANDBOX_STRIPE_PRICE_PRO_PLUS_YEARLY=<price_…>
+SANDBOX_STRIPE_LEGACY_PRICES=<optional: price_…=PLAN/INTERVAL,…>
 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 BASH_MAX_TIMEOUT_MS=14400000
 ```
@@ -166,6 +169,14 @@ BASH_MAX_TIMEOUT_MS=14400000
 - `SANDBOX_STRIPE_*` are deliberately **not** the names the application reads. `pnpm test`, a plain
   `pnpm dev:api` and Playwright therefore run without Stripe, exactly as CI does; only
   `scripts/cloud/with-stripe.sh` and `stack.sh up dev --stripe` map them onto `STRIPE_*`.
+- The six `SANDBOX_STRIPE_PRICE_*` (`STARTER_MONTHLY`, `STARTER_YEARLY`, `PRO_MONTHLY`,
+  `PRO_YEARLY`, `PRO_PLUS_MONTHLY`, `PRO_PLUS_YEARLY`) are the catalog's six prices (§2.4), and
+  `with-stripe.sh` refuses to run unless each is a `price_…` id. An environment set up for the V1
+  catalog holds the V1 ids in the Starter and Pro variables ($9 / $29 a month, $99 / $299 a year):
+  point all four at the V2 prices, add the two `SANDBOX_STRIPE_PRICE_PRO_PLUS_*`, and move the V1
+  ids to `SANDBOX_STRIPE_LEGACY_PRICES` (`price_…=PLAN/INTERVAL`, comma-separated), which
+  `with-stripe.sh` maps onto `STRIPE_LEGACY_PRICES` so subscriptions still on them stay recognised.
+  `with-stripe.sh pnpm billing:verify-catalog` then proves the six.
 - Leave `NODE_ENV` unset: the application defaults to `development`, Vitest to `test`, and
   `next build` must choose `production` itself — an ambient `NODE_ENV=development` makes `pnpm build`
   fail while prerendering.
@@ -196,26 +207,39 @@ Dashboard:
    empty rather than copying another environment.
 2. Inside it, **Developers → API keys**: the secret key (`sk_test_…`) is
    `SANDBOX_STRIPE_SECRET_KEY`.
-3. Two products and four recurring USD prices, `interval_count` 1, per unit: **Starter** at $9 /
-   month and $99 / year, **Pro** at $29 / month and $299 / year. In the Dashboard (**Product
-   catalog → Add product**), or with your local Stripe CLI without logging it in:
+3. Three products — one per plan — and six recurring USD prices, `interval_count` 1, per unit, two
+   on each product: **Starter** at $19 / month and $169 / year, **Pro** at $49 / month and $439 /
+   year, **Pro+** at $199 / month and $1,790 / year. In the Dashboard (**Product catalog → Add
+   product**), or with your local Stripe CLI without logging it in:
 
    ```bash
    read -rs STRIPE_API_KEY && export STRIPE_API_KEY      # paste the cloud sandbox sk_test_ key
    stripe products create --name "Starter" --description "FactorSage Starter"
-   stripe prices create --product <prod_starter> --currency usd --unit-amount 900 \
-     -d "recurring[interval]=month" --lookup-key factorsage_starter_monthly
-   stripe prices create --product <prod_starter> --currency usd --unit-amount 9900 \
-     -d "recurring[interval]=year" --lookup-key factorsage_starter_yearly
+   stripe prices create --product <prod_starter> --currency usd --unit-amount 1900 \
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_starter_monthly
+   stripe prices create --product <prod_starter> --currency usd --unit-amount 16900 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_starter_yearly
    stripe products create --name "Pro" --description "FactorSage Pro"
-   stripe prices create --product <prod_pro> --currency usd --unit-amount 2900 \
-     -d "recurring[interval]=month" --lookup-key factorsage_pro_monthly
-   stripe prices create --product <prod_pro> --currency usd --unit-amount 29900 \
-     -d "recurring[interval]=year" --lookup-key factorsage_pro_yearly
+   stripe prices create --product <prod_pro> --currency usd --unit-amount 4900 \
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_pro_monthly
+   stripe prices create --product <prod_pro> --currency usd --unit-amount 43900 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_pro_yearly
+   stripe products create --name "Pro+" --description "FactorSage Pro+"
+   stripe prices create --product <prod_pro_plus> --currency usd --unit-amount 19900 \
+     -d "recurring[interval]=month" --lookup-key factorsage_v2_pro_plus_monthly
+   stripe prices create --product <prod_pro_plus> --currency usd --unit-amount 179000 \
+     -d "recurring[interval]=year" --lookup-key factorsage_v2_pro_plus_yearly
    unset STRIPE_API_KEY
    ```
 
-   The four `price_…` ids are the four `SANDBOX_STRIPE_PRICE_*` values.
+   The six `price_…` ids are the six `SANDBOX_STRIPE_PRICE_*` values. Both cadences of a plan go on
+   that plan's product, and Pro+ needs a product of its own: `pnpm billing:verify-catalog` refuses
+   either mistake. A sandbox that already holds the V1 catalog keeps its Starter and Pro products and
+   its V1 prices — subscriptions on them are grandfathered — so list those in
+   `SANDBOX_STRIPE_LEGACY_PRICES` rather than reusing their ids, and archive them so they cannot be
+   picked for anything new (`ai/architecture/billing.md`, _Stripe Dashboard configuration
+   checklist_). The cloud sandbox's V2 catalog was created this way on 2026-10-24 and checked by
+   `verify-catalog`.
 
 4. **Settings → Billing → Customer portal**, then save a configuration: payment-method update
    **on**, invoice history **on**, cancel subscriptions **on** and **at end of billing period**,
@@ -307,7 +331,7 @@ pnpm db:migrate:deploy && pnpm db:test:prepare
   sandbox. The API acknowledges unhandled types (`IGNORED_UNHANDLED_TYPE`), which is what makes a
   harmless probe possible. The signing secret is redacted from the listener's log.
 - **Billing QA personas** (`docs/development/billing-qa-personas.md`) are the scripted form of the
-  Test Clock runbook: five accounts with real sandbox subscriptions. Seeding and the opt-in
+  Test Clock runbook: six accounts with real sandbox subscriptions. Seeding and the opt-in
   validation suite go through `with-stripe.sh`; the browser suite runs on the ordinary `e2e` stack,
   which has no Stripe in it, because it only reads what reconciliation already produced. Without
   `--database test` the same commands target the development database, for `up dev --stripe`.

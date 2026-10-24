@@ -1,6 +1,8 @@
 # Entitlements V1
 
-Status: accepted product decision for V1 implementation
+Status: accepted product decision for V1 implementation. **Partly superseded by
+`entitlements-v2.md` (2026-10-23)** — plans, pricing, the matrix, the Guest backtest boundary, the
+backtest limits and Monitor capacity are now V2's; every other section here still stands.
 
 This document is the source of truth for FactorSage V1 commercial entitlements. Entitlements are an application-domain concern. Billing providers such as Stripe may change a user's commercial plan, but Stripe must not define application permissions or limits.
 

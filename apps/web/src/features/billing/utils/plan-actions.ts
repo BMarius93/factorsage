@@ -1,6 +1,7 @@
 import {
   billingPlanRank,
   billingPriceKeyFor,
+  findBillingPriceKey,
   classifyBillingTransition,
   isPaidPlan,
   occupiesPaidSlot,
@@ -101,7 +102,17 @@ export function currentPriceKeyOf(
   ) {
     return null;
   }
-  return billingPriceKeyFor(subscription.plan, subscription.interval);
+  // `null` for a price the catalog no longer sells (a retired cadence): no card offers it, so no
+  // card may claim to be it either — the plan itself is still marked current by `billing.plan`.
+  return findBillingPriceKey(subscription.plan, subscription.interval);
+}
+
+/**
+ * A subscriber billed on a retired price (`legacyPrice`) keeps it only while nothing changes; any
+ * change moves them to today's catalog, and the hint says so — when, never how much.
+ */
+function legacyAware(billing: BillingStatusResponse, hint: string): string {
+  return billing.subscription?.legacyPrice ? `${hint}, at today's price` : hint;
 }
 
 /** The paid plan of a subscription that has ended, if any: the one a returning buyer left. */
@@ -177,8 +188,10 @@ export function planCardState(input: {
         priceKey,
         effect: transition.effect,
       },
-      effectHint:
+      effectHint: legacyAware(
+        billing,
         transition.effect === "IMMEDIATE" ? IMMEDIATE_HINT : RENEWAL_HINT,
+      ),
     };
   }
 

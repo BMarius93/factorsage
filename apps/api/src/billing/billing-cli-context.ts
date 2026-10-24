@@ -43,7 +43,7 @@ export async function openBillingCliContext(): Promise<BillingCliContext> {
   if (!config) {
     throw new Error(
       "Stripe billing is not configured in this environment. Set STRIPE_SECRET_KEY, " +
-        "STRIPE_WEBHOOK_SECRET and the four STRIPE_PRICE_* variables. See ai/architecture/billing.md.",
+        "STRIPE_WEBHOOK_SECRET and the six STRIPE_PRICE_* variables. See ai/architecture/billing.md.",
     );
   }
 

@@ -1,0 +1,86 @@
+/* The demonstration shelf: the page rhythm from the shared vocabulary, and a grid of report cards
+   wearing the product's section surface. */
+
+.page {
+  composes: stack from "../../components/ui/page.module.css";
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  composes: card from "../../components/ui/SectionCard.module.css";
+  gap: 14px;
+  padding: var(--card-pad);
+}
+
+.head {
+  display: grid;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+}
+
+.meta,
+.description,
+.disclaimer {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.meta {
+  color: var(--color-text-secondary);
+}
+
+.description {
+  color: var(--color-text-body);
+}
+
+.disclaimer {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.figures dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.figures dd {
+  margin: 2px 0 0;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 720px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1180px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

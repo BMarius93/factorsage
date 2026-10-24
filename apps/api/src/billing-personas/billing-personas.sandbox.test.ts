@@ -82,9 +82,9 @@ import {
  * 3. it refuses anything but a test-mode key, production, and a database that is not the local
  *    test database, before a Stripe or database client exists.
  *
- * It leaves the five personas **seeded** — in the Stripe sandbox and in the test database — so the
+ * It leaves the six personas **seeded** — in the Stripe sandbox and in the test database — so the
  * browser suite (`pnpm test:e2e:billing:personas`) can read them afterwards. Remove them with
- * `pnpm qa:billing:cleanup -- --database test`. A sixth, throwaway fixture is created and removed
+ * `pnpm qa:billing:cleanup -- --database test`. A seventh, throwaway fixture is created and removed
  * by the cleanup case itself.
  */
 
@@ -377,7 +377,7 @@ describe.skipIf(!ENABLED)(
 
     describe("cleanup", () => {
       // The same lifecycle as a real persona, under an address and an owner of its own, so removing
-      // it proves the cleanup without touching the five personas above.
+      // it proves the cleanup without touching the six personas above.
       const scratch: BillingPersona = {
         ...BILLING_PERSONAS.BILLING_PRO_ACTIVE,
         email: `billing-scratch-${randomUUID()}@example.test`,

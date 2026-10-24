@@ -7,9 +7,15 @@ import type {
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../lib/api/client";
+import { entitlementReason } from "../../../lib/api/entitlement-errors";
 import { fetchStockList } from "../api/stock-lists-api";
 
-export type StockListStatus = "loading" | "ready" | "not-found" | "error";
+/**
+ * `locked` is a premium built-in the viewer's plan does not include: the API withholds its members
+ * (`403 ENTITLEMENT_PREMIUM_CONTENT`), and no retry changes that.
+ */
+export type StockListStatus =
+  "loading" | "ready" | "not-found" | "locked" | "error";
 
 export type StockListState = {
   readonly status: StockListStatus;
@@ -56,7 +62,9 @@ export function useStockList(listId: string): StockListState {
         setStatus(
           error instanceof ApiError && error.status === 404
             ? "not-found"
-            : "error",
+            : entitlementReason(error) === "ENTITLEMENT_PREMIUM_CONTENT"
+              ? "locked"
+              : "error",
         );
       });
 

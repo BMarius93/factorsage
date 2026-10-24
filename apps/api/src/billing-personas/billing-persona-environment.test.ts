@@ -25,9 +25,11 @@ function config(
     webhookSecret: "whsec_offline",
     priceIds: {
       STARTER_MONTHLY: "price_1",
-      STARTER_YEARLY: "price_2",
-      PRO_MONTHLY: "price_3",
-      PRO_YEARLY: "price_4",
+      STARTER_YEARLY: "price_4",
+      PRO_MONTHLY: "price_2",
+      PRO_YEARLY: "price_5",
+      PRO_PLUS_MONTHLY: "price_3",
+      PRO_PLUS_YEARLY: "price_6",
     },
     testMode: true,
     checkoutSuccessUrl: "http://localhost:3000/billing?checkout=success",
@@ -243,7 +245,7 @@ describe("parseBillingPersonaArgs", () => {
   it("defaults to the development database and every persona", () => {
     const options = parseBillingPersonaArgs([], []);
     expect(options.database).toBe("dev");
-    expect(options.personas).toHaveLength(5);
+    expect(options.personas).toHaveLength(6);
   });
 
   it("accepts pnpm's forwarded separator and both option spellings", () => {

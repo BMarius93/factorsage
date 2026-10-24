@@ -231,6 +231,12 @@ export interface StockDataCache {
     hydrating?: StockManifest,
   ): Promise<void>;
   hasResidentStock(securityId: string): Promise<boolean>;
+  /**
+   * Whether a read of this security would have to rebuild it into the **LRU**: it is not resident,
+   * and it routes to the LRU tier (neither the canonical universe nor a Redis designation protects
+   * it). Optional: a cache without tiers never answers true, so callers fall back to rebuilding.
+   */
+  isNonResidentLruSecurity?(securityId: string): Promise<boolean>;
   touch(securityId: string): Promise<void>;
   evict(securityId: string): Promise<void>;
 }
@@ -552,6 +558,18 @@ export class RedisStockDataCache implements StockDataCache {
         securityId,
       )) === 1
     );
+  }
+
+  async isNonResidentLruSecurity(securityId: string): Promise<boolean> {
+    const unrouted =
+      (await this.redis.eval(
+        LRU_CANDIDATE,
+        2,
+        this.residentKey(),
+        this.protectedKey(),
+        securityId,
+      )) === 1;
+    return unrouted && (await this.tierOf(securityId)) === "L";
   }
 
   /**
@@ -1461,6 +1479,14 @@ if manifest == false then return 0 end
 local ok, value = pcall(cjson.decode, manifest)
 if ok and value.status == 'READY' then return 1 end
 return 0
+`;
+
+/** 1 when the security is neither an LRU member nor designated protected (`KEYS[1]`, `KEYS[2]`). */
+const LRU_CANDIDATE = `
+-- lru-candidate
+if redis.call('ZSCORE', KEYS[1], ARGV[1]) then return 0 end
+if redis.call('SISMEMBER', KEYS[2], ARGV[1]) == 1 then return 0 end
+return 1
 `;
 
 const PROTECT_STOCKS = `

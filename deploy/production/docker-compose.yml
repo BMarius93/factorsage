@@ -1,0 +1,211 @@
+# FactorSage production stack — one host, Docker Compose (`docs/production/RUNBOOK.md`).
+#
+# Sizing is for the reference host in `docs/production/architecture.md` §3: 8 dedicated vCPU, 32 GB RAM,
+# NVMe SSD. Every limit below is derived from the measurements in `docs/production/benchmark-results.md`;
+# change them together with architecture.md §3.2, never one in isolation.
+#
+#   docker compose --env-file /etc/factorsage/compose.env -f deploy/production/docker-compose.yml up -d
+#
+# Secrets never live in this file or in the repository: each service reads `/etc/factorsage/*.env`
+# (root-owned, mode 0600), whose templates are `deploy/production/env/*.env.example`.
+
+name: factorsage
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-app: &app
+  restart: unless-stopped
+  init: true
+  logging: *logging
+  # `app` reaches the outside (FMP, Stripe, SMTP, OAuth) and is what Caddy proxies to; `data` is the
+  # only way to PostgreSQL and Redis, and has no route out.
+  networks: [app, data]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m
+
+services:
+  # ---------------------------------------------------------------------------------------------
+  # Edge: TLS termination, HTTP/2 + HTTP/3, compression, security headers. The only published ports.
+  # ---------------------------------------------------------------------------------------------
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in compose.env}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in compose.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in compose.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [app]
+    depends_on:
+      web: { condition: service_healthy }
+      api: { condition: service_healthy }
+      api-2: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 256M }
+
+  # ---------------------------------------------------------------------------------------------
+  # Applications
+  # ---------------------------------------------------------------------------------------------
+  web:
+    <<: *app
+    # The web server talks to the API through its public URL and never to a data store.
+    networks: [app]
+    image: ${REGISTRY:-factorsage}/web:${RELEASE:?set RELEASE}
+    env_file: [/etc/factorsage/web.env]
+    tmpfs:
+      - /tmp:size=256m
+      # Next's runtime cache (image optimization, fetch cache) is the only path it writes.
+      - /repo/apps/web/.next/cache:size=512m,uid=1000,gid=1000
+    depends_on:
+      api: { condition: service_healthy }
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+
+  api: &api
+    <<: *app
+    image: ${REGISTRY:-factorsage}/api:${RELEASE:?set RELEASE}
+    env_file: [/etc/factorsage/api.env]
+    environment:
+      PORT: "3001"
+      NODE_OPTIONS: "--max-old-space-size=1536"
+      # One proxy hop (Caddy) appends X-Forwarded-For; the rate limiter trusts exactly that one.
+      RATE_LIMIT_TRUSTED_PROXY_HOPS: "1"
+      STOCK_LRU_MAX_SECURITIES: "500"
+      BACKTEST_GLOBAL_MAX_RUNNING: "4"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # In-flight requests finish; Nest closes the server on SIGTERM.
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+
+  # A second API process, identical and stateless (every limit lives in PostgreSQL or Redis). One
+  # Node process saturated at ~50 concurrent users in the load test; two served twice the throughput
+  # at a quarter of the p95 (docs/production/benchmark-results.md §6). Caddy balances the two.
+  api-2:
+    <<: *api
+
+  worker:
+    <<: *app
+    image: ${REGISTRY:-factorsage}/worker:${RELEASE:?set RELEASE}
+    env_file: [/etc/factorsage/worker.env]
+    environment:
+      # Four backtests execute at once deployment-wide; four processes give each its own core.
+      BACKTEST_WORKER_PROCESSES: "4"
+      BACKTEST_GLOBAL_MAX_RUNNING: "4"
+      BACKTEST_QUEUE_MAX_QUEUED: "100"
+      MONITOR_WORKER_PROCESSES: "1"
+      MARKET_DATA_WORKER_PROCESSES: "1"
+      STOCK_EOD_WORKER_PROCESSES: "1"
+      STOCK_LRU_MAX_SECURITIES: "500"
+      # Every measured run used a 2 GB V8 heap; a 3 GB one raised a hydrating child's peak by 0.26 GB.
+      NODE_OPTIONS: "--max-old-space-size=2048"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # Longer than the supervisor's own 30 s grace: a child finishing its checkpoint releases its
+    # claim, so a deploy requeues a run instead of waiting a lease for it.
+    stop_grace_period: 45s
+    deploy:
+      resources:
+        # Seven Node processes: four backtest children (measured: 0.5 GB executing, 2.1 GB rebuilding
+        # ~1,000 securities, up to 3.4 GB hydrating first-time securities; four hydrating at once 11.9 GB)
+        # and the Monitor, market-data and stock-EOD children (the Monitor benchmark's single process,
+        # EOD preparation and Monitor pass together, peaked at 2.0 GB).
+        limits: { cpus: "5.0", memory: 16G }
+
+  # The schema job: applied before the API or worker of a release starts (depends_on above).
+  migrate:
+    image: ${REGISTRY:-factorsage}/migrate:${RELEASE:?set RELEASE}
+    restart: "no"
+    init: true
+    logging: *logging
+    networks: [data]
+    env_file: [/etc/factorsage/migrate.env]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # ---------------------------------------------------------------------------------------------
+  # Data
+  # ---------------------------------------------------------------------------------------------
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    logging: *logging
+    networks: [data]
+    env_file: [/etc/factorsage/postgres.env]
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+      - ${BACKUP_DIR:-/var/backups/factorsage}:/backups
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # A fast shutdown checkpoints; never SIGKILL a database mid-write.
+    stop_grace_period: 120s
+    deploy:
+      resources:
+        limits: { cpus: "3.0", memory: 6G }
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    restart: unless-stopped
+    logging: *logging
+    networks: [data]
+    env_file: [/etc/factorsage/redis.env]
+    # The password comes from the environment, never from the config file in the repository.
+    command: ["sh", "-c", "exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # SHUTDOWN SAVE writes the final RDB snapshot; give it time to finish.
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        # maxmemory (redis.conf, 3 GB) plus 1 GB for Redis's own buffers and the copy-on-write fork of a
+        # snapshot (measured: 5 MB copied while saving 1.2 GB).
+        limits: { cpus: "1.0", memory: 4G }
+
+networks:
+  # Caddy, web, API and worker: published ports in, provider and payment traffic out.
+  app: {}
+  # PostgreSQL and Redis with the processes that use them; no route outside the host.
+  data:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:

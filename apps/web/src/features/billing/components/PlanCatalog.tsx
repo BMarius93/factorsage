@@ -3,7 +3,12 @@
 import type { BillingInterval, UserPlan } from "@intrinsic/contracts";
 import type { ReactNode } from "react";
 import type { PlanCardAction, PlanCardState } from "../utils/plan-actions";
-import { PLAN_CARD_ORDER, plansCaption } from "../utils/plan-presentation";
+import {
+  PLAN_CARD_ORDER,
+  UNLIMITED_MONITORS_FOOTNOTE,
+  offersIntervalChoice,
+  plansCaption,
+} from "../utils/plan-presentation";
 import { BillingIntervalToggle } from "./BillingIntervalToggle";
 import { PlanCard } from "./PlanCard";
 import styles from "./BillingPage.module.css";
@@ -21,7 +26,8 @@ type PlanCatalogProps = {
 };
 
 /**
- * The plan comparison: the caption, the cadence toggle and the three plan cards.
+ * The plan comparison: the caption, the cadence toggle (only while the catalog sells more than one
+ * cadence) and the four plan cards, with the footnote an "Unlimited*" allowance points at.
  *
  * Rendered by both the authenticated `/billing` page and the public `/pricing` page (PRICING-001),
  * so the two cannot show different prices, capacities or plan order: there is one component, and
@@ -44,7 +50,9 @@ export function PlanCatalog({
         <p className={styles.plansCaption} data-testid="plans-caption">
           {plansCaption()}
         </p>
-        <BillingIntervalToggle value={interval} onChange={onIntervalChange} />
+        {offersIntervalChoice() ? (
+          <BillingIntervalToggle value={interval} onChange={onIntervalChange} />
+        ) : null}
       </div>
 
       <ul className={styles.grid} data-testid="billing-catalog">
@@ -60,6 +68,10 @@ export function PlanCatalog({
           />
         ))}
       </ul>
+
+      <p className={styles.footnote} data-testid="plans-footnote">
+        {UNLIMITED_MONITORS_FOOTNOTE}
+      </p>
 
       {children}
     </section>

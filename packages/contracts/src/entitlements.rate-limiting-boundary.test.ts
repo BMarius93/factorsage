@@ -69,8 +69,9 @@ describe("entitlements do not model request rate", () => {
   });
 
   it("differs between plans only in product capacity, never in call frequency", () => {
+    // The two ends of the matrix: every way any two plans differ shows up between these two.
     const free = PLAN_ENTITLEMENTS.FREE;
-    const pro = PLAN_ENTITLEMENTS.PRO;
+    const pro = PLAN_ENTITLEMENTS.PRO_PLUS;
     const differing = keyPaths(free).filter((path) => {
       const read = (source: unknown) =>
         path
@@ -85,10 +86,11 @@ describe("entitlements do not model request rate", () => {
     // Exactly the capacity bounds, and nothing resembling a request budget.
     expect(differing.sort()).toEqual([
       "backtests.maxConcurrentRuns",
-      "backtests.maxHistoricalYears",
       // The built-in point-in-time universe's simultaneous members: a capacity bound like the rest.
       "backtests.maxIndexUniverseConstituents",
       "backtests.maxSymbols",
+      // Access to premium built-in content: a capability, never a frequency.
+      "builtInContent.canUsePremium",
       "lists.maxSymbols",
       "monitors.maxActive",
       "tier",

@@ -6,6 +6,8 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PLAN_LABEL } from "../utils/format";
 import type { PlanCardAction, PlanCardState } from "../utils/plan-actions";
 import {
+  PLAN_TAGLINE,
+  RECOMMENDED_BADGE,
   RECOMMENDED_PLAN,
   planFeatures,
   planPricing,
@@ -87,6 +89,9 @@ export function PlanCard({
     <li
       className={styles.plan}
       data-current={state.current ? "true" : undefined}
+      // The recommended plan is emphasized by its frame, whoever is looking — a subscriber on it
+      // still sees which card is the best value, only without the badge competing with "Current".
+      data-emphasis={plan === RECOMMENDED_PLAN ? "recommended" : undefined}
       data-testid={`plan-card-${plan}`}
     >
       <div className={styles.planHead}>
@@ -97,11 +102,16 @@ export function PlanCard({
           </StatusBadge>
         ) : null}
         {recommended ? (
-          <StatusBadge tone="neutral" variant="outline" testId="plan-recommended-badge">
-            Recommended
-          </StatusBadge>
+          // Not a StatusBadge: those name the state of a thing (live, queued, failed), and "Best
+          // Value" is a recommendation, so it wears the plan card's own accent label.
+          <span className={styles.recommendedBadge} data-testid="plan-recommended-badge">
+            {RECOMMENDED_BADGE}
+          </span>
         ) : null}
       </div>
+      <p className={styles.planTagline} data-testid={`plan-tagline-${plan}`}>
+        {PLAN_TAGLINE[plan]}
+      </p>
 
       <p className={styles.price} data-testid={`plan-price-${plan}`}>
         <span className={styles.priceAmount}>{pricing.amount}</span>
@@ -113,10 +123,10 @@ export function PlanCard({
         </p>
       ) : null}
       {/* Yearly only, and on every card — Free's line stays empty — so the feature rows keep one
-          baseline across the three. Under the charge, never instead of it (PR-3). */}
+          baseline across the cards. The note above it already states the annual charge. */}
       {interval === "YEAR" ? (
-        <p className={styles.priceEquivalent} data-testid={`plan-price-equivalent-${plan}`}>
-          {pricing.monthlyEquivalent}
+        <p className={styles.priceSaving} data-testid={`plan-price-saving-${plan}`}>
+          {pricing.saving}
         </p>
       ) : null}
 
@@ -148,7 +158,7 @@ export function PlanCard({
           onAct={onAct}
         />
         {/* Always rendered, empty or not: the hint is what would otherwise make one card's button
-            sit a line higher than its neighbours'. Reserving the line keeps the three CTAs on one
+            sit a line higher than its neighbours'. Reserving the line keeps every CTA on one
             baseline whatever each card has to say. */}
         <p className={styles.ctaHint} data-testid={`plan-hint-${plan}`}>
           {state.effectHint}

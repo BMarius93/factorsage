@@ -34,7 +34,8 @@ test.describe("STARTER billing", () => {
     await expect(page.getByTestId("plan-action-STARTER")).toBeDisabled();
     await expect(page.getByTestId("plan-current-badge")).toHaveCount(1);
 
-    // The matrix, on the cards: 10 / 50 / 100 stocks and 1 / 3 / 10 active monitors.
+    // The matrix, on the cards: 10 / 50 / 750 / 1,000 stocks and 1 / 5 / unlimited / unlimited
+    // active monitors.
     await expect(page.getByTestId("plan-features-FREE")).toContainText(
       "Up to 10 stocks per list",
     );
@@ -42,16 +43,22 @@ test.describe("STARTER billing", () => {
       "Up to 50 stocks per list",
     );
     await expect(page.getByTestId("plan-features-PRO")).toContainText(
-      "Up to 100 stocks per list",
+      "Up to 750 stocks per list",
+    );
+    await expect(page.getByTestId("plan-features-PRO_PLUS")).toContainText(
+      "Up to 1,000 stocks per list",
     );
     await expect(page.getByTestId("plan-features-FREE")).toContainText(
       "1 active monitor",
     );
     await expect(page.getByTestId("plan-features-STARTER")).toContainText(
-      "3 active monitors",
+      "5 active monitors",
     );
     await expect(page.getByTestId("plan-features-PRO")).toContainText(
-      "10 active monitors",
+      "Unlimited active monitors*",
+    );
+    await expect(page.getByTestId("plan-features-PRO_PLUS")).toContainText(
+      "Unlimited active monitors*",
     );
   });
 
@@ -84,7 +91,7 @@ test.describe("STARTER billing", () => {
       `${body.entitlements.monitors.maxActive} active monitors`,
     );
     await expect(card).toContainText(
-      `Backtest periods up to ${body.entitlements.backtests.maxHistoricalYears} years long`,
+      `Backtests up to ${body.entitlements.backtests.maxHistoricalYears} years long`,
     );
     await expect(card).toContainText(
       `Up to ${body.entitlements.backtests.maxSymbols} stocks per backtest`,

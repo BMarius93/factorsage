@@ -49,7 +49,12 @@ export type StockListComplianceResponse = {
 
 export const STOCK_LIST_NAME_MAX_LENGTH = 120;
 export const STOCK_LIST_DESCRIPTION_MAX_LENGTH = 500;
-export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 100;
+/**
+ * Securities one create or add request may carry: a request-size bound, never a commercial one. Equal
+ * to the largest plan's symbol limit (Pro+, 1,000), so any List a plan allows can be created in one
+ * request — about 40 KB of identifiers, inside the API's JSON body limit.
+ */
+export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 1_000;
 export const BUY_WINDOW_MAX_RANGES = 100;
 
 /**

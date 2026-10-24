@@ -215,13 +215,14 @@ describe("backtests", () => {
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
-    // PRO, with every run removed after each test (see the `afterEach`), so this suite exercises
-    // submission, snapshotting and the run lifecycle rather than a plan's symbol, depth or
-    // concurrency limits — those are proven in `entitlements.integration.test.ts`.
+    // PRO_PLUS — two runs at once, and premium content — with every run removed after each test
+    // (see the `afterEach`), so this suite exercises submission, snapshotting and the run lifecycle
+    // rather than a plan's symbol, depth or concurrency limits — those are proven in
+    // `entitlements.integration.test.ts`.
     await prisma.user.createMany({
       data: [
-        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
-        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
+        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO_PLUS" },
+        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO_PLUS" },
       ],
     });
     const users = await prisma.user.findMany({
@@ -1065,14 +1066,14 @@ describe("backtests", () => {
           }),
         )
         .expect(403);
+      // Point-in-time universes are premium content (entitlements-v2 §6): refused as such, before
+      // any size is measured.
       expect(refused.body).toMatchObject({
-        code: "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
-        limit: 0,
-        requested: 2,
+        code: "ENTITLEMENT_PREMIUM_CONTENT",
       });
     });
 
-    it("refuses more simultaneous members than Pro allows, and than the engine runs for anyone", async () => {
+    it("refuses more simultaneous members than the engine runs, for a customer and an administrator alike", async () => {
       await prisma.security.createMany({
         data: extraSymbols.map((providerSymbol, index) => ({
           providerSymbol,
@@ -1097,15 +1098,14 @@ describe("backtests", () => {
         })),
       });
       try {
-        const overPlan = await owner
+        // The plan allows more members at once (Pro+ 1,000) than the engine runs (600), so the
+        // engine ceiling is what a customer meets here, exactly as an administrator does.
+        const overEngineForCustomer = await owner
           .post("/backtests")
           .send(submission({ stockListId: universeListId }))
-          .expect(403);
-        expect(overPlan.body).toMatchObject({
-          code: "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
-          limit: 550,
-          requested: 602,
-        });
+          .expect(400);
+        expect(overEngineForCustomer.body.code).toBe("BACKTEST_INVALID");
+        expect(overEngineForCustomer.body.message).toContain("600 simultaneous members");
         const overEngine = await admin
           .post("/backtests")
           .send(

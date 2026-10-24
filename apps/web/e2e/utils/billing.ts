@@ -16,7 +16,7 @@ import { apiBaseUrl } from "./entitlements";
  */
 
 export type BillingStatusPayload = {
-  readonly plan: "FREE" | "STARTER" | "PRO";
+  readonly plan: "FREE" | "STARTER" | "PRO" | "PRO_PLUS";
   readonly billingEnabled: boolean;
   readonly subscription: {
     readonly plan: string | null;

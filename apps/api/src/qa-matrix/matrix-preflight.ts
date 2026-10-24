@@ -406,8 +406,9 @@ function checkOwner(
   });
   const problems: string[] = [];
   if (!withinLimit(entitlements.backtests.maxConcurrentRuns, input.concurrency)) {
+    const allowed = entitlements.backtests.maxConcurrentRuns;
     problems.push(
-      `\`${owner.email}\` may run ${entitlements.backtests.maxConcurrentRuns} backtests at ` +
+      `\`${owner.email}\` may run ${allowed} backtest${allowed === 1 ? "" : "s"} at ` +
         `once, but the sweep is configured for ${input.concurrency}. Lower --concurrency, or ` +
         "run the matrix as the QA_ADMIN persona the fixtures are meant to be owned by.",
     );

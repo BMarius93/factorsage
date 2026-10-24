@@ -1,8 +1,8 @@
 # Entitlements Architecture
 
-`docs/decisions/entitlements-v1.md` is the product decision. This document is how it is
-implemented; it does not restate or reinterpret the rules, and where the two could disagree the
-decision document wins.
+`docs/decisions/entitlements-v2.md` (with the sections of `entitlements-v1.md` it keeps) is the
+product decision. This document is how it is implemented; it does not restate or reinterpret the
+rules, and where the two could disagree the decision document wins.
 
 ## The shape of it
 
@@ -35,8 +35,9 @@ repository already keeps shared product bounds there (`BACKTEST_MAX_PERIOD_YEARS
 
 ## Persistence
 
-`User.plan` is `FREE | STARTER | PRO`, non-null, defaulted to `FREE`
-(`20260912190000_add_user_plan`). `User.role` is unchanged. `GUEST` is not a value and never
+`User.plan` is `FREE | STARTER | PRO | PRO_PLUS`, non-null, defaulted to `FREE`
+(`20260912190000_add_user_plan`; `PRO_PLUS` added by `20261024120000_pro_plus_plan_and_premium_builtins`,
+which also adds `StockList.premium` / `Strategy.premium`, CHECK-constrained to SYSTEM content). `User.role` is unchanged. `GUEST` is not a value and never
 becomes one: it is derived from the absence of a session, so there is no anonymous row, no
 temporary account and nothing to clean up.
 
@@ -54,8 +55,9 @@ correct only until either side moves and then is silently wrong.
 | `POST /strategies` | `assertCanCreateCustomStrategy` |
 | `POST /strategies/:id/duplicate` | `assertCanCreateCustomStrategy` |
 | `POST /backtests` | `assertCanRunLiveBacktest`, `assertBacktestHistoricalDepth`, `assertBacktestUniverseLimit` (`maxSymbols` for a List, `maxIndexUniverseConstituents` against the period's peak simultaneous members for the built-in point-in-time universe), `assertBacktestConcurrency` (transactional) |
-| `POST /monitors`, `PATCH /monitors/:id` | `assertCanEnableMonitor` — transactional |
-| backtest worker claim | `PrismaBacktestJobRepository.claimNextJob` |
+| `GET /lists/:id`, `GET /strategies/:id`, their `duplicate`, `POST /backtests` | `assertPremiumAccessible` → `assertCanUsePremiumContent` for a premium built-in or point-in-time universe (`ENTITLEMENT_PREMIUM_CONTENT`); summaries carry `premium` / `locked` |
+| `POST /monitors`, `PATCH /monitors/:id` | `assertCanEnableMonitor` — transactional — then `assertMonitorFairUse` (infrastructure ceiling, not an entitlement; `409 MONITOR_FAIR_USE_LIMIT`) |
+| backtest worker claim | `PrismaBacktestJobRepository.claimNextJob` — the owner's per-user limit re-read from `User.plan`, inside the deployment-wide admission (`backtest-execution.md`, "Global admission") |
 | Monitor cycle | `PrismaMonitorRepository.listActiveMonitors` |
 
 Built-in (`SYSTEM`) content is outside every one of these: a built-in List is not a customer List
@@ -177,7 +179,9 @@ one user between plans — which would make every test order-dependent and every
 
 `packages/testing/src/personas.ts` is the one definition: five accounts (`FREE_USER`,
 `STARTER_USER`, `PRO_USER`, `ADMIN_USER`, `DOWNGRADED_USER`) with their plan, role, credential
-variable prefix and Playwright storage-state path. `GUEST` is not in it, because it is not an
+variable prefix and Playwright storage-state path. A `PRO_PLUS_USER` is pending
+(`entitlements-v2.md` §11.6): it needs `QA_PRO_PLUS_*` secrets in every seeding environment first;
+until then the Pro+ limits are proven by the integration suites' own fixtures. `GUEST` is not in it, because it is not an
 account. The seeders and the Playwright projects both read that table; the browser harness imports
 it through the dependency-free `@intrinsic/testing/personas` subpath, so no engine or database code
 reaches the web app.

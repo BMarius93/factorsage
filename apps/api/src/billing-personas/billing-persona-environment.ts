@@ -165,7 +165,7 @@ export function assertBillingPersonaStripeConfig(
     throw new BillingPersonaEnvironmentError(
       "Stripe billing is not configured in this environment. The billing QA personas need a " +
         "Stripe sandbox: set STRIPE_SECRET_KEY (a test-mode key), STRIPE_WEBHOOK_SECRET and the " +
-        "four STRIPE_PRICE_* variables, or run the command through scripts/cloud/with-stripe.sh " +
+        "six STRIPE_PRICE_* variables, or run the command through scripts/cloud/with-stripe.sh " +
         "in a Claude cloud session. See docs/development/billing-qa-personas.md.",
     );
   }

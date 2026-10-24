@@ -1,0 +1,26 @@
+# Build context for docker/production.Dockerfile (BuildKit reads `<Dockerfile>.dockerignore`).
+# Everything the development .dockerignore excludes, plus what no production image needs.
+.git
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+coverage
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+artifacts
+docs
+ai
+# A development machine's local stack state and logs (activation links, egress records).
+.cloud
+.e2e-stack
+# Playwright's signed-in storage states are credentials; the e2e specs themselves stay, because the
+# web type-check includes them (the runtime stage deletes them after the build).
+apps/web/playwright
+**/.tsbuildinfo
+**/*.log

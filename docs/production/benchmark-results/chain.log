@@ -1,0 +1,12 @@
+{"event":"chain.start","at":"2026-10-23T21:35:30Z"}
+{"event":"chain.phase4b","exit":0,"at":"2026-10-23T23:13:08Z"}
+{"event":"chain.phase4c","exit":0,"at":"2026-10-23T23:21:20Z"}
+{"event":"chain.phase5","exit":1,"at":"2026-10-23T23:23:55Z"}
+{"event":"chain.phase8","exit":0,"at":"2026-10-24T01:49:29Z"}
+{"event":"chain.finished","at":"2026-10-24T01:49:29Z"}
+{"event":"chain.phase8b","exit":0,"at":"2026-10-24T02:00:18Z"}
+{"event":"chain.phase5-rerun.start","at":"2026-10-24T02:00:18Z"}
+{"event":"chain.phase5-rerun","exit":0,"at":"2026-10-24T02:32:22Z"}
+{"event":"chain.after-finished","at":"2026-10-24T02:32:22Z"}
+{"event":"chain.phase5b","exit":0,"at":"2026-10-24T02:35:52Z"}
+{"event":"chain.phase5c","exit":1,"at":"2026-10-24T02:36:12Z"}

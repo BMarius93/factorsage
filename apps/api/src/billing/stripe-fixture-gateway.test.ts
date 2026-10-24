@@ -31,6 +31,8 @@ function config(
       STARTER_YEARLY: "price_starter_yearly",
       PRO_MONTHLY: "price_pro_monthly",
       PRO_YEARLY: "price_pro_yearly",
+      PRO_PLUS_MONTHLY: "price_pro_plus_monthly",
+      PRO_PLUS_YEARLY: "price_pro_plus_yearly",
     },
     testMode: true,
     checkoutSuccessUrl: "http://localhost:3000/billing?checkout=success",
@@ -98,9 +100,7 @@ describe("StripeTestModeFixtureGateway", () => {
         metadata: {},
         idempotencyKey: "offline",
       }),
-    ).rejects.toThrow(
-      /not one of the four configured FactorSage catalog prices/,
-    );
+    ).rejects.toThrow(/not one of the .*configured FactorSage catalog prices/);
   });
 });
 

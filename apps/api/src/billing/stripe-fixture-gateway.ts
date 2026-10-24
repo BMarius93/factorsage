@@ -11,7 +11,7 @@
  *
  * What it deliberately cannot do is as important as what it can:
  *
- * - **No product or price operation of any kind.** The shared four-price catalog is read by
+ * - **No product or price operation of any kind.** The shared price catalog is read by
  *   `StripeGateway.describePrices` and written by nobody.
  * - **One delete: a Test Clock.** Stripe removes a clock's customers and their subscriptions with
  *   it, so there is no "delete customer" or "cancel subscription now" to aim at an object this
@@ -67,6 +67,28 @@ export type StripeFixtureSubscription = {
   readonly currentPeriodStart: Date | null;
   readonly currentPeriodEnd: Date | null;
   readonly livemode: boolean;
+};
+
+/**
+ * One invoice of a fixture subscription, as the sandbox suites read it back: what was charged, and
+ * for which price and service period. Read-only — nothing here finalizes, pays or voids an invoice.
+ */
+export type StripeFixtureInvoice = {
+  readonly id: string;
+  /** Stripe's raw status string (`paid`, `open`, …). */
+  readonly status: string | null;
+  /** Stripe's raw `billing_reason` (`subscription_create`, `subscription_update`, …). */
+  readonly billingReason: string | null;
+  readonly currency: string;
+  readonly amountDue: number;
+  readonly amountPaid: number;
+  readonly created: Date;
+  readonly lines: readonly {
+    readonly priceId: string | null;
+    readonly amount: number;
+    readonly periodStart: Date;
+    readonly periodEnd: Date;
+  }[];
 };
 
 /**
@@ -168,6 +190,11 @@ export interface StripeFixtureGateway {
   scheduleCancellationAtPeriodEnd(
     subscriptionId: string,
   ): Promise<StripeFixtureSubscription>;
+
+  /** Every invoice of one subscription, newest first. Read-only. */
+  listSubscriptionInvoices(
+    subscriptionId: string,
+  ): Promise<readonly StripeFixtureInvoice[]>;
 }
 
 /** Thrown when a fixture operation is refused before, or failed at, Stripe. */

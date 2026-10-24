@@ -7,6 +7,7 @@ import {
   strategyDefinitionFingerprint,
   type BacktestRunDetailResponse,
   type BacktestShareResponse,
+  type DemoBacktestListResponse,
   type SharedBacktestPreviewResponse,
   type SharedBacktestReportResponse,
   type StrategyDefinition,
@@ -22,6 +23,7 @@ import { BenchmarksModule } from "../benchmarks/benchmarks.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
+import { BacktestSharingService } from "./backtest-sharing.service";
 import { BacktestsModule } from "./backtests.module";
 
 // Before PrismaService constructs its client during Nest module compilation.
@@ -802,6 +804,90 @@ describe("public backtest sharing", () => {
       expect(own.result?.summary.totalTrades).toBe(2);
       const trades = await owner.get(`/backtests/${runId}/trades`).expect(200);
       expect(trades.body.totalCount).toBe(2);
+    });
+  });
+
+  describe("the demonstration shelf (entitlements-v2 §4)", () => {
+    const demoTitle = `Demo ${suffix}`;
+
+    async function shelf(agent: { get: (path: string) => request.Test }) {
+      const response = await agent.get("/demo-backtests").expect(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      return response.body as DemoBacktestListResponse;
+    }
+
+    function ours(list: DemoBacktestListResponse) {
+      return list.demos.filter((demo) => demo.title === demoTitle);
+    }
+
+    it("lists a featured run for anyone, with exactly the shared report's headline and nothing private", async () => {
+      const sharing = app.get(BacktestSharingService);
+      expect(ours(await shelf(anonymous))).toEqual([]);
+
+      const featured = await sharing.featureDemo({
+        userId: ownerId,
+        runId,
+        title: demoTitle,
+        description: "Precomputed: reading it runs nothing.",
+        position: 0,
+      });
+      expect(featured).not.toBeNull();
+
+      const [demo] = ours(await shelf(anonymous));
+      expect(demo).toBeDefined();
+      const token = demo?.path.split("/share/")[1] as string;
+      const preview = (await anonymous.get(`/shared-backtests/${token}/preview`).expect(200))
+        .body as SharedBacktestPreviewResponse;
+      expect(demo?.headline).toEqual(preview.headline);
+      expect(demo?.configuration).toEqual(preview.configuration);
+      expect(demo?.url).toBe(`https://factorsage.example.test/share/${token}`);
+
+      // A signed-in reader on any plan reads the same shelf.
+      expect(ours(await shelf(free))).toEqual(ours(await shelf(anonymous)));
+
+      const bytes = JSON.stringify(await shelf(anonymous));
+      for (const secret of [STRATEGY_NAME, LIST_NAME, securityName(0), ownerEmail, runId]) {
+        expect(bytes).not.toContain(secret);
+      }
+    });
+
+    it("never executes anything: reading the shelf queues no run", async () => {
+      const before = await prisma.backtestJob.count();
+      await shelf(anonymous);
+      await shelf(starter);
+      expect(await prisma.backtestJob.count()).toBe(before);
+    });
+
+    it("drops a demonstration when its link is revoked, and unfeaturing leaves a link alone", async () => {
+      const sharing = app.get(BacktestSharingService);
+      await sharing.featureDemo({
+        userId: ownerId,
+        runId,
+        title: demoTitle,
+        description: null,
+        position: 0,
+      });
+      expect(ours(await shelf(anonymous))).toHaveLength(1);
+      await owner.delete(`/backtests/${runId}/share`).expect(204);
+      expect(ours(await shelf(anonymous))).toEqual([]);
+      expect(await prisma.demoBacktest.count({ where: { runId } })).toBe(0);
+
+      await sharing.featureDemo({
+        userId: ownerId,
+        runId,
+        title: demoTitle,
+        description: null,
+        position: 0,
+      });
+      const shared = (await owner.get(`/backtests/${runId}/share`).expect(200))
+        .body as BacktestShareResponse;
+      expect(shared.shared).toBe(true);
+      expect(await sharing.unfeatureDemo(runId)).toBe(true);
+      expect(ours(await shelf(anonymous))).toEqual([]);
+      expect(
+        ((await owner.get(`/backtests/${runId}/share`).expect(200)).body as BacktestShareResponse)
+          .url,
+      ).toBe(shared.url);
     });
   });
 });

@@ -4,7 +4,7 @@
    `page.module.css`, the title from `PageHeader`, the subscription facts from `SectionCard` +
    `FactGrid`, and the plan card's surface from `SectionCard`'s own `.card` — composed rather than
    copied, so a plan card and a section surface can never drift to two slightly different radii.
-   What is local here is what only a pricing comparison needs: the cadence toggle, the three-column
+   What is local here is what only a pricing comparison needs: the cadence toggle, the four-card
    plan grid, and the checked feature list. */
 
 .page {
@@ -73,7 +73,16 @@
   box-shadow: var(--focus-ring);
 }
 
-/* --- The three plan cards --- */
+/* The yearly option's saving: the brand accent, quieter than the option's own label. */
+.segmentTag {
+  margin-left: 6px;
+  color: var(--color-primary-ink);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+
+/* --- The four plan cards --- */
 
 .grid {
   display: grid;
@@ -114,6 +123,46 @@
   letter-spacing: -0.01em;
 }
 
+/* Who the plan is for, one quiet line under its name; one line tall on every card so the prices
+   stay level across the row. */
+.planTagline {
+  min-height: 18px;
+  margin: -10px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* The recommended plan's frame: the primary border and the hero shadow, so the best-value card
+   reads first without turning into a coloured block. It applies whoever is looking, current
+   subscriber included; the badge alone steps aside for "Current plan". */
+.plan[data-emphasis="recommended"] {
+  border-color: var(--color-primary-border);
+  box-shadow: var(--shadow-hero);
+}
+
+.recommendedBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--color-primary-border);
+  border-radius: 999px;
+  background: var(--color-surface-selected);
+  color: var(--color-primary-ink);
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.01em;
+}
+
+/* The footnote an "Unlimited*" allowance points at, under the cards. */
+.footnote {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .price {
   display: flex;
   align-items: baseline;
@@ -144,13 +193,14 @@
   line-height: 1.5;
 }
 
-/* A yearly price per month, under the billing note: as quiet as the note, and one line tall even
-   on Free, where it is empty, so the feature rows stay level across the cards. */
-.priceEquivalent {
+/* The yearly saving, under the annual-charge note: one line tall even on Free, where it is empty,
+   so the feature rows stay level across the cards. */
+.priceSaving {
   min-height: 18px;
   margin: -14px 0 0;
-  color: var(--color-text-muted);
+  color: var(--color-primary-ink);
   font-size: 12px;
+  font-weight: var(--weight-emphasis);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
@@ -294,15 +344,21 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Three abreast once the cards can hold a feature line without wrapping every row. Below that they
-   stack, which is also what keeps the price and the button readable on a phone. */
+/* Two abreast on a tablet, four abreast once the cards can hold a feature line without wrapping
+   every row. Below that they stack, which is also what keeps the price and the button readable on a
+   phone. */
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (min-width: 880px) {
   .plans {
     gap: 16px;
   }
 
   .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 18px;
   }
 
@@ -311,7 +367,14 @@
   }
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1180px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+@media (min-width: 1400px) {
   .grid {
     gap: 20px;
   }

@@ -306,7 +306,7 @@ describe("duplicating a stock list", () => {
       description: "The source universe.",
       ownership: "USER",
       canEdit: true,
-      compliance: { symbolCount: 3, symbolLimit: 100, compliant: true },
+      compliance: { symbolCount: 3, symbolLimit: 750, compliant: true },
     });
     expect(copy.systemKey).toBeUndefined();
     expect(copy.items.map((item) => item.security.id)).toEqual([
@@ -464,7 +464,7 @@ describe("duplicating a stock list", () => {
       ownership: "USER",
       canEdit: true,
       // A customer's list, so it is measured against the plan like any other.
-      compliance: { symbolCount: 2, symbolLimit: 100, compliant: true },
+      compliance: { symbolCount: 2, symbolLimit: 750, compliant: true },
     });
     expect(copy.systemKey).toBeUndefined();
     expect(configurationOf(copy)).toEqual(configurationOf(builtInBefore));

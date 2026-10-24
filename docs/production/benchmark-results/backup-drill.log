@@ -1,0 +1,7 @@
+{"event":"backup.start","at":"2026-10-24T04:14:32Z","databaseBytes":24410512407,"table":"DailyPrice","tableBytes":5139677184,"tableHeapBytes":2509250560,"pgDump":"pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)","flags":"--format=custom --compress=zstd:6"}
+{"event":"backup.full-dump-streamed","at":"2026-10-24T04:22:43Z","exit":0,"seconds":491,"dumpBytes":3215059681}
+{"event":"backup.table-dumped","at":"2026-10-24T04:23:38Z","exit":0,"seconds":54,"dumpBytes":597155537,"rows":21480276}
+{"event":"backup.table-listed","at":"2026-10-24T04:23:38Z","exit":0,"entries":3}
+{"event":"backup.bench-dropped","at":"2026-10-24T04:23:54Z","exit":0}
+{"event":"backup.table-restored","at":"2026-10-24T04:25:00Z","exit":0,"seconds":65,"rows":21480276,"restoredBytes":3964346368,"indexes":1,"errorLines":0}
+{"event":"backup.finished","at":"2026-10-24T04:25:03Z"}

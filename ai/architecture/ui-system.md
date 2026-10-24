@@ -886,7 +886,8 @@ component's own content, not the page's mode, and every one is listed here (UI-0
 | 1280px **mount** | Dashboard Market watch (`DashboardPage.tsx`, `useMediaQuery`) | not a style switch: below it the sidebar is not mounted at all (no request, no timer); the grid reserves its track at the same query so nothing shifts when it mounts after hydration |
 
 Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
-reserved `AND` column and control scale at 600px, and the plan cards three abreast at 880px. See
+reserved `AND` column and control scale at 600px, and the plan cards two abreast at 640px and four
+abreast at 1180px. See
 `v1-visual-parity.md`.
 
 ## Known read-model gaps
@@ -919,3 +920,11 @@ addition, not something to work around in the browser.
    recorded only as the outcome `NOT_EVALUABLE` (`MonitorSignalState.lastOutcome`). _Needed:_ an
    evaluation-reason code persisted with the outcome and projected on
    `MonitorSecurityEvaluationResponse`.
+6. **A locked premium item's detail.** `GET /lists/:id` and `GET /strategies/:id` refuse a premium
+   item to a plan without premium content (`403 ENTITLEMENT_PREMIUM_CONTENT`), so its detail page can
+   show only the lock, a "See plans" link and a way back; its name, description and size are on the
+   collection pages' summaries. _Needed:_ a head-only detail projection (name, description, size,
+   `premium`, `locked`) that omits members and rules.
+7. **A pending cancellation in the Backtests collection.** `BacktestRunSummaryResponse` carries no
+   `cancellation`, so the list cannot show "Cancelling…" for an executing run; only its own page can.
+   _Needed:_ the optional `cancellation` field on the summary, as the detail has.

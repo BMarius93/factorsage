@@ -66,8 +66,8 @@ describe("entitlements", () => {
   const securityIds: string[] = [];
   const providerSymbols: string[] = [];
 
-  /** Enough catalog rows to exceed the largest plan's list capacity by one. */
-  const SECURITY_COUNT = 101;
+  /** Enough catalog rows to exceed the largest plan's list capacity (Pro+, 1,000) by one. */
+  const SECURITY_COUNT = 1_001;
 
   function persona(name: string): Persona {
     const found = personas.get(name);
@@ -283,6 +283,7 @@ describe("entitlements", () => {
         { name: "free", plan: "FREE", role: "USER" },
         { name: "starter", plan: "STARTER", role: "USER" },
         { name: "pro", plan: "PRO", role: "USER" },
+        { name: "proplus", plan: "PRO_PLUS", role: "USER" },
         { name: "downgrade", plan: "PRO", role: "USER" },
         { name: "monitors", plan: "PRO", role: "USER" },
         { name: "backtests", plan: "PRO", role: "USER" },
@@ -312,24 +313,33 @@ describe("entitlements", () => {
 
     anonymous = request.agent(app.getHttpServer());
 
+    // In one statement: a thousand round trips would dominate the suite's setup.
     for (let index = 0; index < SECURITY_COUNT; index += 1) {
-      const providerSymbol = `ENT${index}-${suffix}`;
-      providerSymbols.push(providerSymbol);
-      const security = await prisma.security.create({
-        data: {
-          providerSymbol,
-          symbol: `ENT${index}-${suffix.slice(0, 8).toUpperCase()}`,
-          name: `Entitlement Security ${index}`,
-          exchangeCode: "NASDAQ",
-          exchangeName: "NASDAQ Global Select",
-          currency: "USD",
-          type: "STOCK",
-          isAdr: false,
-          isActivelyTrading: true,
-        },
-        select: { id: true },
-      });
-      securityIds.push(security.id);
+      providerSymbols.push(`ENT${index}-${suffix}`);
+    }
+    await prisma.security.createMany({
+      data: providerSymbols.map((providerSymbol, index) => ({
+        providerSymbol,
+        symbol: `ENT${index}-${suffix.slice(0, 8).toUpperCase()}`,
+        name: `Entitlement Security ${index}`,
+        exchangeCode: "NASDAQ",
+        exchangeName: "NASDAQ Global Select",
+        currency: "USD",
+        type: "STOCK" as const,
+        isAdr: false,
+        isActivelyTrading: true,
+      })),
+    });
+    const created = new Map(
+      (
+        await prisma.security.findMany({
+          where: { providerSymbol: { in: providerSymbols } },
+          select: { id: true, providerSymbol: true },
+        })
+      ).map((row) => [row.providerSymbol, row.id]),
+    );
+    for (const providerSymbol of providerSymbols) {
+      securityIds.push(created.get(providerSymbol)!);
     }
   });
 
@@ -392,9 +402,10 @@ describe("entitlements", () => {
       expect(body.entitlements.stocks.canSearch).toBe(true);
       expect(body.entitlements.builtInContent.canViewLists).toBe(true);
       expect(body.entitlements.builtInContent.canViewStrategies).toBe(true);
-      // DEC-007: a Guest may not view any Backtest, demo included.
-      expect(body.entitlements.backtests.canViewDemo).toBe(false);
+      // Entitlements V2 §4: a Guest reads the precomputed demonstrations and executes nothing.
+      expect(body.entitlements.backtests.canViewDemo).toBe(true);
       expect(body.entitlements.backtests.canRunLive).toBe(false);
+      expect(body.entitlements.builtInContent.canUsePremium).toBe(false);
     });
 
     it("refuses every path that would persist content or start live execution", async () => {
@@ -427,7 +438,8 @@ describe("entitlements", () => {
     const cases: { as: string; limit: number }[] = [
       { as: "free", limit: 10 },
       { as: "starter", limit: 50 },
-      { as: "pro", limit: 100 },
+      { as: "pro", limit: 750 },
+      { as: "proplus", limit: 1_000 },
     ];
 
     for (const { as, limit } of cases) {
@@ -478,30 +490,30 @@ describe("entitlements", () => {
       });
     }
 
-    it("refuses a PRO overflow through the add path, where the plan limit is what binds", async () => {
+    it("refuses a PRO_PLUS overflow through the add path, where the plan limit is what binds", async () => {
       // `STOCK_LIST_MAX_SECURITIES_PER_ADD` is a structural request bound, not a commercial one,
-      // and at 100 it is stricter than PRO's own limit — so a 101-symbol *create* never reaches the
-      // entitlement. That interaction is asserted rather than worked around: the add path is where
-      // PRO's commercial limit is the thing that refuses.
-      const create = await agentOf("pro")
+      // and it equals PRO_PLUS's own limit — so a 1,001-symbol *create* is refused as a malformed
+      // request before the entitlement is asked. That interaction is asserted rather than worked
+      // around: the add path is where PRO_PLUS's commercial limit is the thing that refuses.
+      const create = await agentOf("proplus")
         .post("/lists")
         .send({
           name: "Structurally too large",
-          securityIds: securityIds.slice(0, 101),
+          securityIds: securityIds.slice(0, STOCK_LIST_MAX_SECURITIES_PER_ADD + 1),
         })
         .expect(400);
       expect(refusal(create.body).code).toBeUndefined();
 
-      const list = await createList("At PRO limit", 100, { as: "pro" });
-      const rejected = await agentOf("pro")
+      const list = await createList("At PRO_PLUS limit", 1_000, { as: "proplus" });
+      const rejected = await agentOf("proplus")
         .post(`/lists/${list.id}/items`)
-        .send({ securityIds: [securityIds[100]] })
+        .send({ securityIds: [securityIds[1_000]] })
         .expect(403);
       expect(refusal(rejected.body).code).toBe("ENTITLEMENT_LIST_SYMBOL_LIMIT");
-      expect(refusal(rejected.body).limit).toBe(100);
+      expect(refusal(rejected.body).limit).toBe(1_000);
       expect(
         await prisma.stockListItem.count({ where: { stockListId: list.id } }),
-      ).toBe(100);
+      ).toBe(1_000);
     });
 
     it("cannot be raced past the symbol limit by simultaneous adds", async () => {
@@ -620,6 +632,8 @@ describe("entitlements", () => {
     const symbolCases: { as: string; limit: number }[] = [
       { as: "free", limit: 10 },
       { as: "starter", limit: 50 },
+      { as: "pro", limit: 750 },
+      { as: "proplus", limit: 1_000 },
     ];
 
     for (const { as, limit } of symbolCases) {
@@ -671,10 +685,12 @@ describe("entitlements", () => {
       });
     }
 
+    // Every plan's entitlement is the product's whole thirty-year horizon (entitlements-v2 §3).
     const depthCases: { as: string; years: number }[] = [
-      { as: "free", years: 5 },
-      { as: "starter", years: 15 },
+      { as: "free", years: 30 },
+      { as: "starter", years: 30 },
       { as: "pro", years: 30 },
+      { as: "proplus", years: 30 },
     ];
 
     for (const { as, years } of depthCases) {
@@ -686,9 +702,9 @@ describe("entitlements", () => {
         });
 
         if (years === 30) {
-          // PRO's entitlement is the product's whole retention horizon, so one day more is refused
-          // by the plan-independent horizon rule instead. Asserted so the interaction is recorded
-          // rather than silently untested.
+          // The plan's entitlement is the product's whole retention horizon, so one day more is
+          // refused by the plan-independent horizon rule instead. Asserted so the interaction is
+          // recorded rather than silently untested.
           const beyond = await agentOf(as)
             .post("/backtests")
             .send({
@@ -721,7 +737,7 @@ describe("entitlements", () => {
       const guest = (await anonymous.get("/entitlements").expect(200))
         .body as EntitlementsResponse;
       expect(guest.entitlements.stocks.maxHistoricalYears).toBeNull();
-      for (const as of ["free", "starter", "pro"]) {
+      for (const as of ["free", "starter", "pro", "proplus"]) {
         const body = (await agentOf(as).get("/entitlements").expect(200))
           .body as EntitlementsResponse;
         expect(body.entitlements.backtests.maxHistoricalYears).not.toBeNull();
@@ -732,7 +748,8 @@ describe("entitlements", () => {
     const concurrencyCases: { as: string; limit: number }[] = [
       { as: "free", limit: 1 },
       { as: "starter", limit: 1 },
-      { as: "pro", limit: 2 },
+      { as: "pro", limit: 1 },
+      { as: "proplus", limit: 2 },
     ];
 
     for (const { as, limit } of concurrencyCases) {
@@ -824,8 +841,7 @@ describe("entitlements", () => {
 
     const cases: { as: string; limit: number }[] = [
       { as: "free", limit: 1 },
-      { as: "starter", limit: 3 },
-      { as: "pro", limit: 10 },
+      { as: "starter", limit: 5 },
     ];
 
     for (const { as, limit } of cases) {
@@ -843,6 +859,46 @@ describe("entitlements", () => {
         ).toBe(limit);
       });
     }
+
+    for (const as of ["pro", "proplus"]) {
+      it(`places no plan limit on active monitors on ${as}`, async () => {
+        // Twelve: more than any capped plan's limit, and more than Pro's old limit of ten.
+        const inputs = await monitorInputs(as);
+        for (let index = 0; index < 12; index += 1) {
+          await createMonitor(as, inputs).expect(201);
+        }
+        const body = (await agentOf(as).get("/entitlements").expect(200))
+          .body as EntitlementsResponse;
+        expect(body.entitlements.monitors.maxActive).toBeNull();
+      });
+    }
+
+    it("refuses beyond the operational fair-use ceiling with its own code, never an entitlement", async () => {
+      // "Unlimited" is no advertised plan cap, not unlimited infrastructure (entitlements-v2 §7).
+      const previous = process.env.MONITOR_FAIR_USE_MAX_ENABLED_PER_USER;
+      process.env.MONITOR_FAIR_USE_MAX_ENABLED_PER_USER = "3";
+      try {
+        const inputs = await monitorInputs("proplus");
+        for (let index = 0; index < 3; index += 1) {
+          await createMonitor("proplus", inputs).expect(201);
+        }
+        const refused = await createMonitor("proplus", inputs).expect(409);
+        expect((refused.body as { code: string }).code).toBe("MONITOR_FAIR_USE_LIMIT");
+        // Stored switched off, it is not refused: the ceiling is on what is active.
+        const stored = await createMonitor("proplus", inputs, { enabled: false }).expect(201);
+        const enabling = await agentOf("proplus")
+          .patch(`/monitors/${(stored.body as { id: string }).id}`)
+          .send({ enabled: true })
+          .expect(409);
+        expect((enabling.body as { code: string }).code).toBe("MONITOR_FAIR_USE_LIMIT");
+      } finally {
+        if (previous === undefined) {
+          delete process.env.MONITOR_FAIR_USE_MAX_ENABLED_PER_USER;
+        } else {
+          process.env.MONITOR_FAIR_USE_MAX_ENABLED_PER_USER = previous;
+        }
+      }
+    });
 
     it("places no quota on stored monitors, only on active ones", async () => {
       const inputs = await monitorInputs("free");
@@ -1049,25 +1105,15 @@ describe("entitlements", () => {
         (listed.body as { id: string }[]).map((row) => row.id),
       ).toContain(content.runId);
 
-      // Rerunning the identical configuration is a *new* operation and is validated afresh. Depth
-      // is decidable from the submitted period alone, so it is checked before anything is read —
-      // which is why a configuration violating both bounds reports the depth one.
+      // Rerunning the identical configuration is a *new* operation and is validated afresh. Every
+      // plan allows its twenty years now (entitlements-v2 §3), so the List's sixty symbols against
+      // FREE's ten are what refuse it.
       const rerun = await agentOf("downgrade")
         .post("/backtests")
         .send(content.submission)
         .expect(403);
-      expect(refusal(rerun.body).code).toBe("ENTITLEMENT_BACKTEST_HISTORY_LIMIT");
-      expect(refusal(rerun.body).limit).toBe(5);
-
-      // The symbol bound refuses it independently, on a period FREE allows.
-      const shortPeriod = await agentOf("downgrade")
-        .post("/backtests")
-        .send({ ...content.submission, startDate: yearsBefore(endDate, 2) })
-        .expect(403);
-      expect(refusal(shortPeriod.body).code).toBe(
-        "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
-      );
-      expect(refusal(shortPeriod.body).limit).toBe(10);
+      expect(refusal(rerun.body).code).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+      expect(refusal(rerun.body).limit).toBe(10);
 
       // Nothing about the completed run moved while all of that was refused.
       expect(

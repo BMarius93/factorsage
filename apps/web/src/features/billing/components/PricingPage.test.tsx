@@ -1,6 +1,7 @@
 import type {
   BillingStatusResponse,
   BillingSubscriptionView,
+  EntitlementLimit,
 } from "@intrinsic/contracts";
 import {
   BILLING_CATALOG,
@@ -26,8 +27,10 @@ import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { SIGN_IN_TO_CHOOSE_PLAN } from "../../auth/utils/sign-in-prompts";
 import {
   PLAN_CARD_ORDER,
+  UNLIMITED_MONITORS_FOOTNOTE,
   formatUsd,
   plansCaption,
+  yearlySavingPercent,
 } from "../utils/plan-presentation";
 import { BillingPage } from "./BillingPage";
 import { PricingPage } from "./PricingPage";
@@ -40,6 +43,10 @@ import { PricingPage } from "./PricingPage";
  * with sign-in links that come back to `/pricing`; a signed-in viewer gets exactly `/billing`'s
  * behaviour; and the two pages cannot show different prices or limits. Every expected amount and
  * capacity below is read out of `BILLING_CATALOG` / `PLAN_ENTITLEMENTS`, never restated.
+ *
+ * The catalog sells every paid plan monthly and yearly, so both pages offer the cadence toggle; a
+ * yearly card leads with its effective monthly cost and states the exact annual amount, billed
+ * upfront, directly under it.
  */
 
 vi.mock("next/navigation", () => ({
@@ -101,6 +108,7 @@ function subscription(
     cancelAtPeriodEnd: false,
     cancelAt: null,
     pendingChange: null,
+    legacyPrice: false,
     ...overrides,
   };
 }
@@ -108,6 +116,9 @@ function subscription(
 const card = (plan: string) => screen.getByTestId(`plan-card-${plan}`);
 const action = (plan: string) => screen.getByTestId(`plan-action-${plan}`);
 const usd = (minorUnits: number) => `$${minorUnits / 100}`;
+/** A matrix number as a card prints it: `1000` -> `1,000`, unbounded -> `Unlimited`. */
+const quoted = (limit: EntitlementLimit) =>
+  limit === null ? "Unlimited" : limit.toLocaleString("en-US");
 
 describe("PricingPage", () => {
   beforeEach(() => {
@@ -121,82 +132,190 @@ describe("PricingPage", () => {
   });
 
   describe("for a Guest", () => {
-    it("shows the three plans with prices and capacities from the canonical catalog", () => {
+    it("shows the four plans with prices and capacities from the canonical catalog", () => {
       render(<PricingPage />);
 
       expect(
         screen.getByRole("heading", { level: 1, name: "Pricing" }),
       ).toBeTruthy();
       const catalog = screen.getByTestId("billing-catalog");
-      expect(catalog.childElementCount).toBe(PLAN_CARD_ORDER.length);
+      expect(
+        Array.from(catalog.children, (child) =>
+          child.getAttribute("data-testid"),
+        ),
+      ).toEqual(PLAN_CARD_ORDER.map((plan) => `plan-card-${plan}`));
+      expect(PLAN_CARD_ORDER).toEqual(["FREE", "STARTER", "PRO", "PRO_PLUS"]);
 
       for (const plan of PAID_PLANS) {
-        expect(screen.getByTestId(`plan-price-${plan}`).textContent).toContain(
-          usd(BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits),
+        expect(screen.getByTestId(`plan-price-${plan}`).textContent).toBe(
+          `${usd(BILLING_CATALOG[`${plan}_MONTHLY`].amountMinorUnits)}/ month`,
         );
       }
-      expect(screen.getByTestId("plan-price-FREE").textContent).toContain("$0");
+      expect(screen.getByTestId("plan-price-FREE").textContent).toBe(
+        "$0/ month",
+      );
 
       for (const plan of PLAN_CARD_ORDER) {
         const features =
           screen.getByTestId(`plan-features-${plan}`).textContent ?? "";
         const limits = PLAN_ENTITLEMENTS[plan];
         expect(features).toContain(
-          `${limits.lists.maxSymbols} stocks per list`,
+          `${quoted(limits.lists.maxSymbols)} stocks per list`,
         );
         expect(features).toContain(
-          `Backtest periods up to ${limits.backtests.maxHistoricalYears} years long`,
+          `Backtests up to ${quoted(limits.backtests.maxHistoricalYears)} years long`,
         );
         expect(features).toContain(
-          `${limits.backtests.maxSymbols} stocks per backtest`,
+          `${quoted(limits.backtests.maxSymbols)} stocks per backtest`,
         );
         expect(features).toContain(
-          `${limits.monitors.maxActive} active monitor`,
+          `${quoted(limits.monitors.maxActive)} active monitor`,
         );
       }
     });
 
-    it("re-prices the same cards from the catalog when the cadence changes", async () => {
+    it("re-prices the same four cards yearly: the monthly cost, the annual amount billed upfront, the saving", async () => {
       render(<PricingPage />);
 
-      await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
-
+      const monthlyRadio = screen.getByRole("radio", { name: /Monthly/ });
+      const yearlyRadio = screen.getByRole("radio", { name: /Yearly/ });
+      expect((monthlyRadio as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByTestId("billing-interval-saving").textContent).toBe(
+        "Save 25%",
+      );
       for (const plan of PAID_PLANS) {
-        expect(screen.getByTestId(`plan-price-${plan}`).textContent).toContain(
-          usd(BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits),
+        expect(screen.getByTestId(`plan-price-note-${plan}`).textContent).toBe(
+          "Billed monthly",
         );
-        // The yearly charge first, its monthly equivalent under it (PR-3).
-        expect(
-          screen.getByTestId(`plan-price-equivalent-${plan}`).textContent,
-        ).toBe(
-          `≈ ${formatUsd(Math.round(BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits / 12))} / month`,
+        expect(screen.queryByTestId(`plan-price-saving-${plan}`)).toBeNull();
+      }
+
+      await userEvent.click(yearlyRadio);
+
+      expect((yearlyRadio as HTMLInputElement).checked).toBe(true);
+      expect(screen.getAllByTestId(/^plan-card-/)).toHaveLength(4);
+      for (const plan of PAID_PLANS) {
+        const yearly = BILLING_CATALOG[`${plan}_YEARLY`].amountMinorUnits;
+        // The large figure is per month, for comparison with the monthly cards…
+        expect(screen.getByTestId(`plan-price-${plan}`).textContent).toBe(
+          `${formatUsd(Math.round(yearly / 12))}/ month`,
+        );
+        // …and the line under it says exactly what is charged, and that it is charged upfront.
+        expect(screen.getByTestId(`plan-price-note-${plan}`).textContent).toBe(
+          `Billed annually: ${formatUsd(yearly)} upfront`,
+        );
+        expect(screen.getByTestId(`plan-price-saving-${plan}`).textContent).toBe(
+          `Save ${yearlySavingPercent(plan)}%`,
         );
       }
-      expect(screen.getByTestId("billing-catalog").childElementCount).toBe(3);
+      expect(screen.getByTestId("plan-price-FREE").textContent).toBe(
+        "$0/ month",
+      );
+      expect(screen.getByTestId("plan-price-saving-FREE").textContent).toBe("");
+      // The emphasis does not move with the cadence.
+      expect(card("PRO").getAttribute("data-emphasis")).toBe("recommended");
+      expect(screen.getAllByTestId("plan-recommended-badge")).toHaveLength(1);
+      expect(screen.getByTestId("plan-tagline-PRO_PLUS").textContent).toBe(
+        "Advanced Research",
+      );
+
+      await userEvent.click(monthlyRadio);
+      expect(screen.getByTestId("plan-price-PRO").textContent).toBe(
+        `${usd(BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits)}/ month`,
+      );
+      expect(screen.queryByTestId("plan-price-saving-PRO")).toBeNull();
     });
 
-    it("tells a visitor which plans include the point-in-time universe (PR-1)", () => {
+    it("quotes the owner's yearly amounts, never rounded or derived elsewhere", async () => {
+      render(<PricingPage />);
+      await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+
+      // Literal on purpose: the published prices (entitlements-v2 §2).
+      expect(screen.getByTestId("plan-price-STARTER").textContent).toBe("$14.08/ month");
+      expect(screen.getByTestId("plan-price-note-STARTER").textContent).toBe(
+        "Billed annually: $169 upfront",
+      );
+      expect(screen.getByTestId("plan-price-PRO").textContent).toBe("$36.58/ month");
+      expect(screen.getByTestId("plan-price-note-PRO").textContent).toBe(
+        "Billed annually: $439 upfront",
+      );
+      expect(screen.getByTestId("plan-price-PRO_PLUS").textContent).toBe("$149.17/ month");
+      expect(screen.getByTestId("plan-price-note-PRO_PLUS").textContent).toBe(
+        "Billed annually: $1,790 upfront",
+      );
+    });
+
+    it("recommends Pro as the best value and names Pro+ the advanced tier", () => {
+      render(<PricingPage />);
+
+      expect(card("PRO").getAttribute("data-emphasis")).toBe("recommended");
+      expect(screen.getAllByTestId("plan-recommended-badge")).toHaveLength(1);
+      expect(
+        within(card("PRO")).getByTestId("plan-recommended-badge").textContent,
+      ).toBe("Best Value");
+
+      expect(screen.getByTestId("plan-tagline-PRO_PLUS").textContent).toBe(
+        "Advanced Research",
+      );
+      expect(
+        screen.getByTestId("plan-feature-PRO_PLUS-backtest-concurrency")
+          .textContent,
+      ).toContain("Parallel Backtests: 2 at a time");
+      expect(action("PRO_PLUS").textContent).toBe("Choose Pro+");
+      expect(screen.getByTestId("plans-footnote").textContent).toBe(
+        UNLIMITED_MONITORS_FOOTNOTE,
+      );
+    });
+
+    it("tells a visitor which plans include premium content", () => {
       render(<PricingPage />);
 
       expect(screen.getByTestId("plans-caption").textContent).toBe(
         plansCaption(),
       );
       for (const plan of PLAN_CARD_ORDER) {
-        const allowance =
-          PLAN_ENTITLEMENTS[plan].backtests.maxIndexUniverseConstituents;
-        const row = screen.getByTestId(`plan-feature-${plan}-index-universe`);
+        const row = screen.getByTestId(`plan-feature-${plan}-premium-content`);
         expect(row.textContent).toContain(
-          allowance === 0
-            ? "Not included"
-            : `Up to ${allowance} index members at once`,
+          PLAN_ENTITLEMENTS[plan].builtInContent.canUsePremium
+            ? "S&P 500 Historical PIT backtests"
+            : "Not included",
         );
       }
     });
 
+    it("never advertises priority, speed or a guaranteed run time", () => {
+      const { container } = render(<PricingPage />);
+
+      // Every plan shares one fair queue: a plan changes how many runs go at once, never how fast.
+      expect(container.textContent).not.toMatch(
+        /\b(priority|faster|guaranteed)\b/i,
+      );
+    });
+
+    it("explains both cadences, with the fair queue and a non-destructive downgrade", () => {
+      render(<PricingPage />);
+
+      const facts =
+        screen.getByTestId("pricing-billing-facts").textContent ?? "";
+      expect(facts).toContain(
+        "A yearly plan is billed in full, upfront, for the whole year",
+      );
+      expect(facts).toContain("every month, or every year");
+      expect(facts).toContain(
+        "Moving from monthly to yearly billing takes effect immediately",
+      );
+      expect(facts).toContain(
+        "moving from yearly to monthly takes effect at the end of the paid year",
+      );
+      expect(facts).toContain("one fair queue");
+      expect(facts).toContain(
+        "Lists larger than the new plan allows stay saved",
+      );
+    });
+
     it("calls no billing endpoint at all", async () => {
       render(<PricingPage />);
-      await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
-      await userEvent.click(action("PRO"));
+      await userEvent.click(action("PRO_PLUS"));
 
       for (const call of BILLING_API) {
         expect(call).not.toHaveBeenCalled();
@@ -306,18 +425,40 @@ describe("PricingPage", () => {
       expect(
         screen.getByTestId("pricing-billing-link").getAttribute("href"),
       ).toBe("/billing");
-      await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
-      expect(action("PRO").textContent).toBe("Upgrade to Pro");
-      await userEvent.click(action("PRO"));
+      expect(action("PRO_PLUS").textContent).toBe("Upgrade to Pro+");
+      expect(action("PRO_PLUS").getAttribute("data-price-key")).toBe(
+        BILLING_CATALOG.PRO_PLUS_MONTHLY.key,
+      );
+      await userEvent.click(action("PRO_PLUS"));
 
       expect(startCheckout).toHaveBeenCalledTimes(1);
       expect(startCheckout).toHaveBeenCalledWith(
-        BILLING_CATALOG.PRO_YEARLY.key,
+        BILLING_CATALOG.PRO_PLUS_MONTHLY.key,
       );
       expect(window.location.assign).toHaveBeenCalledWith(
         "https://checkout.stripe.com/c/pay/cs_test_stub",
       );
       expect(screen.queryByTestId("sign-in-prompt")).toBeNull();
+    });
+
+    it("starts Checkout for the yearly price once Yearly is chosen", async () => {
+      fetchBillingStatus.mockResolvedValue(billingStatus());
+      startCheckout.mockResolvedValue({
+        checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_stub",
+      });
+      render(<PricingPage />);
+
+      await waitFor(() =>
+        expect(card("FREE").getAttribute("data-current")).toBe("true"),
+      );
+      await userEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
+      expect(action("PRO").getAttribute("data-price-key")).toBe(
+        BILLING_CATALOG.PRO_YEARLY.key,
+      );
+      await userEvent.click(action("PRO"));
+
+      expect(startCheckout).toHaveBeenCalledTimes(1);
+      expect(startCheckout).toHaveBeenCalledWith(BILLING_CATALOG.PRO_YEARLY.key);
     });
 
     it("changes a live subscription through the existing change call, not Checkout", async () => {
@@ -344,7 +485,7 @@ describe("PricingPage", () => {
       await waitFor(() => expect(fetchBillingStatus).toHaveBeenCalledTimes(2));
     });
 
-    it("shows the cadence the viewer is billed in until they pick another", async () => {
+    it("opens on the yearly cards for a yearly subscriber, with that plan current", async () => {
       fetchBillingStatus.mockResolvedValue(
         billingStatus({
           plan: "PRO",
@@ -359,8 +500,47 @@ describe("PricingPage", () => {
       await waitFor(() =>
         expect(action("PRO").textContent).toBe("Current plan"),
       );
-      expect(screen.getByTestId("plan-price-PRO").textContent).toContain(
-        usd(BILLING_CATALOG.PRO_YEARLY.amountMinorUnits),
+      expect(card("PRO").getAttribute("data-current")).toBe("true");
+      expect(
+        (screen.getByRole("radio", { name: /Yearly/ }) as HTMLInputElement)
+          .checked,
+      ).toBe(true);
+      expect(screen.getByTestId("plan-price-note-PRO").textContent).toBe(
+        `Billed annually: ${formatUsd(BILLING_CATALOG.PRO_YEARLY.amountMinorUnits)} upfront`,
+      );
+      expect(action("PRO_PLUS").getAttribute("data-price-key")).toBe(
+        BILLING_CATALOG.PRO_PLUS_YEARLY.key,
+      );
+    });
+
+    it("keeps a grandfathered subscriber's plan current, and says a change moves them to today's price", async () => {
+      // Billed on a retired price they keep: the same plan and cadence is the current plan, and
+      // any other card is the ordinary transition, from today's price of that plan and cadence.
+      fetchBillingStatus.mockResolvedValue(
+        billingStatus({
+          plan: "PRO",
+          subscription: subscription({
+            plan: "PRO",
+            interval: "YEAR",
+            legacyPrice: true,
+          }),
+          canStartCheckout: false,
+          canOpenPortal: true,
+          canChangePlan: true,
+        }),
+      );
+      render(<PricingPage />);
+
+      await waitFor(() =>
+        expect(action("PRO").textContent).toBe("Current plan"),
+      );
+      expect(screen.getByTestId("plan-hint-PRO_PLUS").textContent).toBe(
+        "Takes effect immediately, at today's price",
+      );
+      await userEvent.click(screen.getByRole("radio", { name: /Monthly/ }));
+      expect(action("PRO").textContent).toBe("Switch to monthly");
+      expect(screen.getByTestId("plan-hint-PRO").textContent).toBe(
+        "Takes effect at your next renewal, at today's price",
       );
     });
 
@@ -404,32 +584,36 @@ describe("PricingPage", () => {
       render(<PricingPage />);
 
       await screen.findByTestId("billing-unavailable");
-      expect(screen.queryByTestId("plan-action-STARTER")).toBeNull();
-      expect(screen.queryByTestId("plan-action-PRO")).toBeNull();
+      for (const plan of PAID_PLANS) {
+        expect(screen.queryByTestId(`plan-action-${plan}`)).toBeNull();
+      }
       expect(startCheckout).not.toHaveBeenCalled();
     });
   });
 
-  it("shows exactly the prices, notes and limits /billing shows, in both cadences", async () => {
-    const read = () =>
-      PLAN_CARD_ORDER.map((plan) => ({
+  it("shows exactly the prices, notes, limits and emphasis /billing shows", async () => {
+    const read = () => ({
+      caption: screen.getByTestId("plans-caption").textContent,
+      footnote: screen.getByTestId("plans-footnote").textContent,
+      cards: PLAN_CARD_ORDER.map((plan) => ({
         plan,
+        tagline: screen.getByTestId(`plan-tagline-${plan}`).textContent,
+        badge:
+          within(card(plan)).queryByTestId("plan-recommended-badge")
+            ?.textContent ?? null,
+        emphasis: card(plan).getAttribute("data-emphasis"),
         price: screen.getByTestId(`plan-price-${plan}`).textContent,
         note: screen.getByTestId(`plan-price-note-${plan}`).textContent,
-        equivalent:
-          screen.queryByTestId(`plan-price-equivalent-${plan}`)?.textContent ??
-          null,
         features: screen.getByTestId(`plan-features-${plan}`).textContent,
-      }));
+      })),
+    });
 
     const snapshots: Record<string, unknown> = {};
     for (const page of ["pricing", "billing"] as const) {
       fetchBillingStatus.mockResolvedValue(billingStatus());
       render(page === "pricing" ? <PricingPage /> : <BillingPage />);
       await screen.findByTestId("billing-catalog");
-      const monthly = read();
-      await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
-      snapshots[page] = { monthly, yearly: read() };
+      snapshots[page] = read();
       cleanup();
     }
 

@@ -1060,6 +1060,17 @@ test.describe("PRO_USER backtests", () => {
     );
 
     const plot = page.getByRole("img", { name: /Strategy portfolio value/ });
+    // Every gesture below aims at this box, so it is measured with nothing over the chart and the
+    // chart on screen. The storage-choice banner sits over the bottom of the viewport until the
+    // visitor decides — exactly where the reset below double-clicks the time axis — and the wheel
+    // gestures over the locked chart above scroll the page itself (a locked chart lets them
+    // through), which can leave the plot partly above the viewport.
+    const consent = page.getByTestId("consent-banner");
+    if (await consent.isVisible()) {
+      await page.getByTestId("consent-reject").click();
+      await expect(consent).toHaveCount(0);
+    }
+    await plot.scrollIntoViewIfNeeded();
     const box = await plot.boundingBox();
     expect(box).not.toBeNull();
     const visibleRange = async () => {

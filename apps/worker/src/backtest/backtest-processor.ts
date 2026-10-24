@@ -121,6 +121,8 @@ export interface BacktestFrameLoader {
       priceBasisGeneration?: number;
       valuation?: ValuationTimeline;
       carry?: EvaluationWindowCarry;
+      nonResidentRead?: "REBUILD" | "STORE";
+      onStoreRead?: () => void;
     },
   ): Promise<EvaluationFrame>;
 }
@@ -238,6 +240,12 @@ type PreparedRun = {
 
 export type BacktestProcessorOptions = {
   frameConcurrency: number;
+  /**
+   * How a window reads a security that is neither resident nor protected: read the window from
+   * PostgreSQL without admitting it (`STORE`, what `BACKTEST_NON_RESIDENT_FRAME_READ` defaults to)
+   * or rebuild it into the LRU (`REBUILD`, the default when a caller passes nothing).
+   */
+  nonResidentFrameRead?: "REBUILD" | "STORE";
   checkpointEveryDays: number;
   checkpointMinIntervalMs: number;
   leaseMs: number;
@@ -452,13 +460,27 @@ export class BacktestProcessor implements BacktestJobProcessor {
         prepared,
         archive,
       );
-      archive?.recordTiming("runningMs", Date.now() - runningStartedAt);
+      const runningMs = Date.now() - runningStartedAt;
+      archive?.recordTiming("runningMs", runningMs);
+      // Phase durations as their own events, so operations can tell a slow simulation from a slow
+      // result write without the debug archive.
+      this.dependencies.logger.info({
+        event: "backtest.simulation.completed",
+        durationMs: runningMs,
+        tradingDays: result.summary.tradingDays,
+      });
 
       phase = "FINALIZING";
       const finalizingStartedAt = Date.now();
       await archive?.recordResult(result);
       await this.finalize(claim, lease, result, prepared.etfDiagnostics);
-      archive?.recordTiming("finalizingMs", Date.now() - finalizingStartedAt);
+      const finalizingMs = Date.now() - finalizingStartedAt;
+      archive?.recordTiming("finalizingMs", finalizingMs);
+      this.dependencies.logger.info({
+        event: "backtest.finalized",
+        durationMs: finalizingMs,
+        tradeCount: result.summary.totalTrades,
+      });
       archiveStatus = "COMPLETED";
 
       this.dependencies.logger.info({
@@ -1245,7 +1267,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
         throw new BacktestInterruptedError(interruption);
       }
       const startedAt = Date.now();
-      const frames = await this.loadWindowFrames(prepared, window);
+      const reads = { store: 0 };
+      const frames = await this.loadWindowFrames(prepared, window, reads);
       const durationMs = Date.now() - startedAt;
       this.dependencies.logger.debug({
         event: "backtest.window.loaded",
@@ -1255,6 +1278,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
         durationMs,
         securityCount: frames.length,
         tradingDays: window.dates.length,
+        storeReads: reads.store,
       });
       archive?.recordWindowLoad({ window, durationMs, frames });
       await simulation.consumeWindow(window, { frames });
@@ -1276,7 +1300,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
   private async loadWindowFrames(
     prepared: PreparedRun,
     window: BacktestExecutionWindow,
+    reads: { store: number } = { store: 0 },
   ): Promise<EvaluationFrame[]> {
+    const nonResidentRead = this.options.nonResidentFrameRead ?? "REBUILD";
     const range = { from: window.from, to: window.to } as const;
     const frames: EvaluationFrame[] = new Array(prepared.securities.length);
     await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
@@ -1289,6 +1315,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
             {
               resolveGroupMembers: prepared.resolveGroupMembers,
               carry: prepared.carry,
+              ...(nonResidentRead === "STORE"
+                ? {
+                    nonResidentRead,
+                    onStoreRead: () => {
+                      reads.store += 1;
+                    },
+                  }
+                : {}),
               ...(entry.priceBasisGeneration === undefined
                 ? {}
                 : { priceBasisGeneration: entry.priceBasisGeneration }),

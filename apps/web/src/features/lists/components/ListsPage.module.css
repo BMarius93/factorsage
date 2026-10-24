@@ -12,6 +12,15 @@
   text-decoration: none;
 }
 
+/* The name and, on a premium built-in, its Premium badge: one line where it fits. */
+.nameRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
 .name {
   color: var(--color-text-primary);
   font-size: 14px;

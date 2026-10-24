@@ -499,21 +499,48 @@ export function getAdminBootstrapConfig(env: Environment = process.env) {
   } as const;
 }
 
-/** The four logical price keys, spelled as the environment-variable suffixes they map to. */
+/**
+ * The logical price keys, spelled as the environment-variable suffixes they map to: every paid plan
+ * monthly and yearly (`docs/decisions/entitlements-v2.md` §2).
+ *
+ * `STRIPE_PRICE_STARTER_YEARLY` and `STRIPE_PRICE_PRO_YEARLY` are the names the V1 catalog used for
+ * its $99 / $299 years. They now hold the V2 years ($169 / $439); a deployment that still has a V1
+ * price in one would sell it, which is why the V1 prices belong in `STRIPE_LEGACY_PRICES` — a price
+ * in both is refused at startup — and why `pnpm billing:verify-catalog` checks every amount.
+ */
 const STRIPE_PRICE_ENV_NAMES = {
   STARTER_MONTHLY: "STRIPE_PRICE_STARTER_MONTHLY",
   STARTER_YEARLY: "STRIPE_PRICE_STARTER_YEARLY",
   PRO_MONTHLY: "STRIPE_PRICE_PRO_MONTHLY",
   PRO_YEARLY: "STRIPE_PRICE_PRO_YEARLY",
+  PRO_PLUS_MONTHLY: "STRIPE_PRICE_PRO_PLUS_MONTHLY",
+  PRO_PLUS_YEARLY: "STRIPE_PRICE_PRO_PLUS_YEARLY",
 } as const;
 
 export type StripePriceKeyName = keyof typeof STRIPE_PRICE_ENV_NAMES;
+
+/**
+ * A retired Stripe price that existing subscriptions may still be billed on — a V1 price ($9 / $29
+ * a month, $99 / $299 a year) — and the plan and cadence it grants. Recognized so those subscribers
+ * keep their plan (grandfathered) instead of failing closed to Free; never sold, never a change
+ * target. A current catalog price is never a legacy one: listing one is refused at startup.
+ */
+export type StripeLegacyPrice = {
+  readonly priceId: string;
+  readonly plan: "STARTER" | "PRO" | "PRO_PLUS";
+  readonly interval: "MONTH" | "YEAR";
+};
 
 export type StripeBillingConfig = {
   readonly secretKey: string;
   readonly webhookSecret: string;
   /** Logical catalog key -> the Stripe Price ID configured for *this* environment. */
   readonly priceIds: Readonly<Record<StripePriceKeyName, string>>;
+  /**
+   * Retired prices still recognized for existing subscriptions (`STRIPE_LEGACY_PRICES`). Always
+   * present from `getStripeBillingConfig`; optional so a hand-built test configuration needs none.
+   */
+  readonly legacyPrices?: readonly StripeLegacyPrice[];
   /** True when the configured secret key is a test-mode/sandbox key. */
   readonly testMode: boolean;
   /** Where Stripe returns the browser after hosted Checkout. Server-configured, never client. */
@@ -556,6 +583,52 @@ function isStripeLiveSecret(secretKey: string): boolean {
  *
  * Never expose the returned object, or any field of it, to browser code.
  */
+/**
+ * `STRIPE_LEGACY_PRICES`: comma-separated `price_…=PLAN/INTERVAL` entries, e.g.
+ * `price_1AbC=STARTER/MONTH,price_2DeF=PRO/YEAR`. Each retired price keeps the subscribers billed on
+ * it on that plan. A malformed entry, an unknown plan or interval, a duplicate, or a price that is
+ * also a current catalog price is refused at startup: the one direction a typo here can fail in is
+ * granting the wrong plan.
+ */
+function parseStripeLegacyPrices(
+  raw: string | undefined,
+  currentPriceIds: ReadonlySet<string>,
+): StripeLegacyPrice[] {
+  if (!raw) {
+    return [];
+  }
+  const plans = ["STARTER", "PRO", "PRO_PLUS"] as const;
+  const intervals = ["MONTH", "YEAR"] as const;
+  const seen = new Set<string>();
+  const legacy: StripeLegacyPrice[] = [];
+  for (const entry of raw.split(",").map((part) => part.trim()).filter(Boolean)) {
+    const match = /^(price_[A-Za-z0-9_]+)=([A-Z_]+)\/([A-Z]+)$/.exec(entry);
+    const plan = plans.find((candidate) => candidate === match?.[2]);
+    const interval = intervals.find((candidate) => candidate === match?.[3]);
+    if (!match || !plan || !interval) {
+      throw new Error(
+        `Invalid application configuration: STRIPE_LEGACY_PRICES entry '${entry}' must be ` +
+          "price_…=PLAN/INTERVAL with PLAN one of STARTER, PRO, PRO_PLUS and INTERVAL MONTH or YEAR",
+      );
+    }
+    const priceId = match[1] as string;
+    if (currentPriceIds.has(priceId)) {
+      throw new Error(
+        `Invalid application configuration: ${priceId} is a current catalog price and cannot also be ` +
+          "a legacy price in STRIPE_LEGACY_PRICES",
+      );
+    }
+    if (seen.has(priceId)) {
+      throw new Error(
+        `Invalid application configuration: ${priceId} appears twice in STRIPE_LEGACY_PRICES`,
+      );
+    }
+    seen.add(priceId);
+    legacy.push({ priceId, plan, interval });
+  }
+  return legacy;
+}
+
 export function getStripeBillingConfig(
   env: Environment = process.env,
 ): StripeBillingConfig | null {
@@ -618,9 +691,9 @@ export function getStripeBillingConfig(
     }
     const duplicate = seen.get(value);
     if (duplicate) {
-      // Two logical keys pointing at one Stripe price would make plan and interval ambiguous in
-      // exactly the direction that matters: a Pro price resolving to Starter, or a yearly price
-      // billing monthly. It is always a copy-paste error and never a valid configuration.
+      // Two logical keys pointing at one Stripe price would make the plan ambiguous in exactly the
+      // direction that matters: a Pro+ price resolving to Pro, or a Pro price to Starter. It is
+      // always a copy-paste error and never a valid configuration.
       throw new Error(
         `Invalid application configuration: ${name} and ${STRIPE_PRICE_ENV_NAMES[duplicate]} are ` +
           "the same Stripe Price ID; each logical price must map to its own Stripe price",
@@ -630,12 +703,18 @@ export function getStripeBillingConfig(
     priceIds[key] = value;
   }
 
+  const legacyPrices = parseStripeLegacyPrices(
+    optional(env, "STRIPE_LEGACY_PRICES"),
+    new Set(seen.keys()),
+  );
+
   const webBaseUrl = getWebBaseUrl(env);
 
   return {
     secretKey,
     webhookSecret,
     priceIds,
+    legacyPrices,
     testMode,
     // Defaults land on the web app's own billing page, so a working local setup needs no URL
     // configuration at all — and an override is still an absolute URL validated like any other.
@@ -704,6 +783,77 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
       1_000,
     ),
     frameConcurrency: integer(env, ["BACKTEST_FRAME_LOAD_CONCURRENCY"], 4),
+    nonResidentFrameRead: nonResidentFrameRead(env),
+  } as const;
+}
+
+/**
+ * How a backtest window reads a security that is neither resident nor protected
+ * (`EvaluationFrameOptions.nonResidentRead` in `@intrinsic/stock-data`): `STORE`, the default, reads
+ * the window's rows from PostgreSQL without admitting it; `REBUILD` rebuilds it into the LRU as any
+ * other read does. A run over more ordinary securities than the LRU holds otherwise rebuilds every
+ * one of them in every calendar-year window (`docs/decisions/stock-cache-tiers-v1.md`, amendment of
+ * 2026-10-23).
+ */
+function nonResidentFrameRead(env: Environment): "REBUILD" | "STORE" {
+  const value = optional(env, "BACKTEST_NON_RESIDENT_FRAME_READ") ?? "STORE";
+  if (value !== "REBUILD" && value !== "STORE") {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_NON_RESIDENT_FRAME_READ must be REBUILD or STORE",
+    );
+  }
+  return value;
+}
+
+/**
+ * Deployment-wide backtest admission (`ai/architecture/backtest-execution.md`, "Global admission").
+ *
+ * - `globalMaxRunning` — how many backtests may **execute** at once across the whole deployment,
+ *   every worker process on every host together. It is enforced atomically at the claim
+ *   (`lockBacktestAdmission`), so it is a real limit rather than a sum of per-process ones; a worker
+ *   process beyond it simply polls. The production target is 4. Every worker must be given the same
+ *   value: each claim compares the shared count with its own setting.
+ * - `queueMaxQueued` — how many runs may **wait** for a slot before a new submission is refused
+ *   with `503 BACKTEST_QUEUE_FULL` and a `Retry-After`: admission backpressure, never an
+ *   entitlement. Per-user in-flight limits already bound each user's share of the queue; this
+ *   bounds the total when many users submit at once. Read by the API at submission.
+ * - `queueFullRetryAfterSeconds` — the `Retry-After` such a refusal carries.
+ *
+ * A cap above `BACKTEST_WORKER_PROCESSES` × hosts can never bind; the API logs both at startup.
+ */
+export function getBacktestAdmissionConfig(env: Environment = process.env) {
+  const globalMaxRunning = integer(env, ["BACKTEST_GLOBAL_MAX_RUNNING"], 4);
+  if (globalMaxRunning > MAX_BACKTEST_WORKER_PROCESSES * 8) {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_GLOBAL_MAX_RUNNING must be between 1 and " +
+        `${MAX_BACKTEST_WORKER_PROCESSES * 8}`,
+    );
+  }
+  return {
+    globalMaxRunning,
+    queueMaxQueued: integer(env, ["BACKTEST_QUEUE_MAX_QUEUED"], 100),
+    queueFullRetryAfterSeconds: integer(
+      env,
+      ["BACKTEST_QUEUE_FULL_RETRY_AFTER_SECONDS"],
+      60,
+    ),
+  } as const;
+}
+
+/**
+ * The operational fair-use ceiling on one user's **enabled** Monitors.
+ *
+ * Not an entitlement: Pro and Pro+ advertise unlimited active Monitors and the entitlement matrix
+ * says `null`. "Unlimited" is no advertised numerical subscription cap, not unlimited
+ * infrastructure (`docs/decisions/entitlements-v2.md` §7): a Monitor pass costs about one
+ * transaction per monitored member per finalized session, so one account with hundreds of
+ * 750-symbol Monitors would lengthen the end-of-day pass for every customer. This bounds that,
+ * refused with its own code (`MONITOR_FAIR_USE_LIMIT`) and never presented as a plan limit. Read at
+ * each enable, so it can be raised for one deployment without a code change.
+ */
+export function getMonitorFairUseConfig(env: Environment = process.env) {
+  return {
+    maxEnabledPerUser: integer(env, ["MONITOR_FAIR_USE_MAX_ENABLED_PER_USER"], 100),
   } as const;
 }
 

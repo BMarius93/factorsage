@@ -30,6 +30,11 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
+import {
+  PremiumBadge,
+  PremiumUpgradeHint,
+  premiumPlansLabel,
+} from "../../billing/components/PremiumContent";
 import { deleteStrategy, duplicateStrategy } from "../api/strategies-api";
 import { useStrategies } from "../hooks/use-strategies";
 import {
@@ -140,12 +145,23 @@ export function StrategiesPage() {
       header: "Name",
       cardRole: "identity",
       render: (strategy) => (
-        <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
-          <span className={styles.name}>{strategy.name}</span>
-          {strategy.description ? (
-            <span className={styles.description}>{strategy.description}</span>
-          ) : null}
-        </Link>
+        <>
+          <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
+            <span className={styles.nameRow}>
+              <span className={styles.name}>{strategy.name}</span>
+              {strategy.premium ? (
+                <PremiumBadge locked={strategy.locked === true} size="small" />
+              ) : null}
+            </span>
+            {strategy.description ? (
+              <span className={styles.description}>{strategy.description}</span>
+            ) : null}
+          </Link>
+          {/* A locked strategy is still named, with its level counts, for discovery; what it
+              takes to use it is said under it. Outside the name link, which stays the row's
+              first link. */}
+          {strategy.locked ? <PremiumUpgradeHint /> : null}
+        </>
       ),
     },
     {
@@ -211,10 +227,11 @@ export function StrategiesPage() {
                 ]
               : []),
             // Any strategy the viewer can read can be copied into one they own, a built-in
-            // included; a Guest is asked for an account first.
+            // included; a Guest is asked for an account first. A locked premium strategy is not
+            // read in full on this plan, so it cannot be copied either.
             {
               label: "Duplicate",
-              disabled: !gate.resolved,
+              disabled: !gate.resolved || strategy.locked === true,
               onSelect: () =>
                 gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
                   setDialog({ kind: "duplicate", strategy }),
@@ -349,7 +366,13 @@ export function StrategiesPage() {
           <CollectionSection
             density="compact"
             title="Built-in strategies"
-            caption="FactorSage's own logic. Everyone can read and backtest it; only FactorSage changes it."
+            caption={
+              // "Everyone can backtest it" stops being true of a premium strategy, so the caption
+              // says which ones it covers once there is one.
+              builtIn.some((strategy) => strategy.premium)
+                ? `FactorSage's own logic, changed only by FactorSage. Everyone can read and backtest the standard strategies; premium ones are included in ${premiumPlansLabel()}.`
+                : "FactorSage's own logic. Everyone can read and backtest it; only FactorSage changes it."
+            }
             label="Built-in strategies"
             noun="strategies"
             testId="built-in-strategies"

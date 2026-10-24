@@ -51,12 +51,30 @@ const PRICE_IDS: Record<BillingPriceKey, string> = {
   STARTER_YEARLY: "price_test_starter_yearly",
   PRO_MONTHLY: "price_test_pro_monthly",
   PRO_YEARLY: "price_test_pro_yearly",
+  PRO_PLUS_MONTHLY: "price_test_pro_plus_monthly",
+  PRO_PLUS_YEARLY: "price_test_pro_plus_yearly",
 };
+
+const ALL_PRICE_KEYS = Object.keys(PRICE_IDS) as BillingPriceKey[];
+
+/**
+ * Retired V1 prices existing subscribers may still be billed on (`STRIPE_LEGACY_PRICES`): the $299
+ * Pro year, the $99 Starter year and the $9 Starter month. Distinct from the V2 years above, which
+ * are sold; these never are.
+ */
+const LEGACY_PRO_YEARLY = "price_test_legacy_pro_yearly";
+const LEGACY_STARTER_YEARLY = "price_test_legacy_starter_yearly";
+const LEGACY_STARTER_MONTHLY = "price_test_legacy_starter_monthly";
 
 const BILLING_CONFIG: StripeBillingConfig = {
   secretKey: "sk_test_integration",
   webhookSecret: WEBHOOK_SECRET,
   priceIds: PRICE_IDS,
+  legacyPrices: [
+    { priceId: LEGACY_PRO_YEARLY, plan: "PRO", interval: "YEAR" },
+    { priceId: LEGACY_STARTER_YEARLY, plan: "STARTER", interval: "YEAR" },
+    { priceId: LEGACY_STARTER_MONTHLY, plan: "STARTER", interval: "MONTH" },
+  ],
   testMode: true,
   checkoutSuccessUrl: "http://localhost:3000/billing?checkout=success",
   checkoutCancelUrl: "http://localhost:3000/billing?checkout=cancelled",
@@ -104,7 +122,10 @@ describe("billing", () => {
               const key = (Object.keys(PRICE_IDS) as BillingPriceKey[]).find(
                 (candidate) => PRICE_IDS[candidate] === priceId,
               );
-              return key ? BILLING_CATALOG[key].interval : null;
+              const legacy = BILLING_CONFIG.legacyPrices?.find(
+                (candidate) => candidate.priceId === priceId,
+              );
+              return key ? BILLING_CATALOG[key].interval : (legacy?.interval ?? null);
             },
           }),
       })
@@ -266,12 +287,12 @@ describe("billing", () => {
     it("creates a session for a catalog key and resolves the configured price server-side", async () => {
       const response = await agent
         .post("/billing/checkout")
-        .send({ priceKey: "PRO_YEARLY" })
+        .send({ priceKey: "PRO_PLUS_MONTHLY" })
         .expect(201);
 
       expect(response.body.checkoutUrl).toMatch(/^https:\/\/checkout\.stripe\.test\//);
       const session = stripe.checkoutSessions.at(-1);
-      expect(session?.priceId).toBe(PRICE_IDS.PRO_YEARLY);
+      expect(session?.priceId).toBe(PRICE_IDS.PRO_PLUS_MONTHLY);
       expect(session?.userId).toBe(userId);
       // Server configuration, never a client-supplied redirect.
       expect(session?.successUrl).toBe(BILLING_CONFIG.checkoutSuccessUrl);
@@ -293,8 +314,12 @@ describe("billing", () => {
         { priceKey: "PRO_MONTHLY", role: "ADMIN" },
         { priceKey: "PRO_MONTHLY", successUrl: "https://evil.test/grant" },
         { priceKey: "price_1234" },
-        { priceKey: "PRO_PLUS_MONTHLY" },
+        // A retired V1 price is not a key, and neither is a cadence spelled another way.
+        { priceKey: LEGACY_PRO_YEARLY },
+        { priceKey: "PRO_PLUS_ANNUAL" },
+        { priceKey: "pro_yearly" },
         { priceKey: "FREE" },
+        { priceKey: "FREE_YEARLY" },
         {},
       ]) {
         await agent.post("/billing/checkout").send(body).expect(400);
@@ -302,6 +327,15 @@ describe("billing", () => {
       expect(stripe.checkoutSessions).toHaveLength(0);
       expect(await planOf()).toBe("FREE");
     });
+
+    for (const priceKey of ALL_PRICE_KEYS) {
+      it(`opens Checkout for ${priceKey} on the price configured for it`, async () => {
+        await agent.post("/billing/checkout").send({ priceKey }).expect(201);
+        expect(stripe.checkoutSessions).toHaveLength(1);
+        expect(stripe.checkoutSessions[0]?.priceId).toBe(PRICE_IDS[priceKey]);
+        expect(await planOf()).toBe("FREE");
+      });
+    }
 
     it("creates one canonical customer and reuses it", async () => {
       await agent.post("/billing/checkout").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
@@ -428,7 +462,7 @@ describe("billing", () => {
     it("leaves exactly one session payable when several requests arrive at once", async () => {
       stripe.loadLatencyMs = 25;
       const responses = await Promise.all(
-        (["STARTER_MONTHLY", "PRO_MONTHLY", "PRO_YEARLY"] as const).map((priceKey) =>
+        (["STARTER_MONTHLY", "PRO_MONTHLY", "PRO_PLUS_MONTHLY"] as const).map((priceKey) =>
           agent.post("/billing/checkout").send({ priceKey }),
         ),
       );
@@ -490,12 +524,7 @@ describe("billing", () => {
   // -------------------------------------------------------------------------
 
   describe("new subscriptions", () => {
-    for (const priceKey of [
-      "STARTER_MONTHLY",
-      "STARTER_YEARLY",
-      "PRO_MONTHLY",
-      "PRO_YEARLY",
-    ] as const) {
+    for (const priceKey of ALL_PRICE_KEYS) {
       it(`FREE -> ${priceKey} once Stripe reports it active`, async () => {
         const { subscriptionId, customerId } = await givenSubscribed(priceKey);
         await deliverWebhook(
@@ -531,7 +560,7 @@ describe("billing", () => {
     });
 
     it("stays FREE when the first payment never completes", async () => {
-      const { subscriptionId, customerId } = await givenSubscribed("PRO_YEARLY", {
+      const { subscriptionId, customerId } = await givenSubscribed("PRO_PLUS_MONTHLY", {
         status: "incomplete",
       });
       stripe.setStatus(subscriptionId, "incomplete_expired");
@@ -559,24 +588,190 @@ describe("billing", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Upgrades
+  // Retired (legacy) prices — entitlements-v2 §2
   // -------------------------------------------------------------------------
 
-  describe("upgrades", () => {
-    it("Starter monthly -> Pro monthly is immediate once Stripe bills it", async () => {
-      await givenSubscribed("STARTER_MONTHLY");
-      expect(await planOf()).toBe("STARTER");
+  describe("subscribers on a retired price", () => {
+    async function givenLegacy(priceId: string) {
+      const customerId = stripe.seedCustomer(userId);
+      await prisma.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } });
+      const subscription = stripe.seedSubscription({ customerId, priceId });
+      const result = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      return { customerId, subscriptionId: subscription.id, result };
+    }
 
+    it("keep their plan (grandfathered) instead of failing closed to Free", async () => {
+      const { result } = await givenLegacy(LEGACY_PRO_YEARLY);
+      expect(result.plan).toBe("PRO");
+      expect(result.planReason).toBe("SUBSCRIPTION_ACTIVE");
+      expect(result.anomalous).toBe(false);
+      const mirror = await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } });
+      expect(mirror).toMatchObject({
+        plan: "PRO",
+        billingInterval: "YEAR",
+        stripePriceId: LEGACY_PRO_YEARLY,
+      });
+    });
+
+    it("move up a tier immediately, onto today's price", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_STARTER_MONTHLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_PLUS_MONTHLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({ effect: "IMMEDIATE", kind: "TIER_UPGRADE", plan: "PRO_PLUS" });
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(PRICE_IDS.PRO_PLUS_MONTHLY);
+    });
+
+    it("move down a tier at period end, keeping the paid period", async () => {
+      await givenLegacy(LEGACY_PRO_YEARLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "STARTER_MONTHLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({ effect: "SCHEDULED", kind: "TIER_DOWNGRADE" });
+      expect(await planOf()).toBe("PRO");
+    });
+
+    it("are already on their plan: today's year of the same plan is not a change", async () => {
+      // Nothing moves a grandfathered subscriber onto today's price of what they already have:
+      // the retired $299 year stays theirs until they choose a different plan or cadence.
+      const { subscriptionId } = await givenLegacy(LEGACY_PRO_YEARLY);
+      const refused = await agent.post("/billing/change").send({ priceKey: "PRO_YEARLY" });
+      expect(refused.status).toBe(409);
+      expect((refused.body as { code: string }).code).toBe("BILLING_CHANGE_NOT_ALLOWED");
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(LEGACY_PRO_YEARLY);
+      expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
+      expect(stripe.callCounts.get("scheduleSubscriptionPriceChange") ?? 0).toBe(0);
+    });
+
+    it("keep a retired year until its end when they choose today's month of the plan", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_PRO_YEARLY);
+      const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
       const response = await agent
         .post("/billing/change")
         .send({ priceKey: "PRO_MONTHLY" })
         .expect(201);
-
-      expect(response.body.effect).toBe("IMMEDIATE");
-      expect(response.body.kind).toBe("TIER_UPGRADE");
-      expect(response.body.plan).toBe("PRO");
-      expect(await planOf()).toBe("PRO");
+      expect(response.body).toMatchObject({
+        effect: "SCHEDULED",
+        kind: "CADENCE_SHORTENED",
+        plan: "PRO",
+        effectiveAt: periodEnd.toISOString(),
+      });
+      // Still billed on the retired year, which the subscriber has paid for.
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(LEGACY_PRO_YEARLY);
+      const mirror = await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } });
+      expect(mirror).toMatchObject({
+        stripePriceId: LEGACY_PRO_YEARLY,
+        pendingPriceId: PRICE_IDS.PRO_MONTHLY,
+        pendingInterval: "MONTH",
+      });
     });
+
+    it("move from a retired month to today's year of the plan immediately", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_STARTER_MONTHLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "STARTER_YEARLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({
+        effect: "IMMEDIATE",
+        kind: "CADENCE_LENGTHENED",
+        plan: "STARTER",
+      });
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(
+        PRICE_IDS.STARTER_YEARLY,
+      );
+      expect((await status()).subscription).toMatchObject({
+        interval: "YEAR",
+        legacyPrice: false,
+      });
+    });
+
+    it("move up a tier from a retired year immediately, onto today's price", async () => {
+      const { subscriptionId } = await givenLegacy(LEGACY_STARTER_YEARLY);
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_YEARLY" })
+        .expect(201);
+      expect(response.body).toMatchObject({ effect: "IMMEDIATE", kind: "TIER_UPGRADE", plan: "PRO" });
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(PRICE_IDS.PRO_YEARLY);
+    });
+
+    it("are reported as on a retired price, which today's subscribers are not", async () => {
+      await givenLegacy(LEGACY_STARTER_YEARLY);
+      expect((await status()).subscription).toMatchObject({
+        plan: "STARTER",
+        interval: "YEAR",
+        legacyPrice: true,
+      });
+    });
+
+    it("cannot be bought: no logical key names a retired price, and a year is sold at today's", async () => {
+      // A retired price id is not a key, so the request is refused outright.
+      const refused = await agent
+        .post("/billing/checkout")
+        .send({ priceKey: LEGACY_PRO_YEARLY });
+      expect(refused.status).toBe(400);
+      expect(stripe.checkoutSessions).toHaveLength(0);
+
+      // A year bought today is today's year, never the retired one.
+      await agent.post("/billing/checkout").send({ priceKey: "PRO_YEARLY" }).expect(201);
+      expect(stripe.checkoutSessions.at(-1)?.priceId).toBe(PRICE_IDS.PRO_YEARLY);
+      expect(stripe.checkoutSessions.at(-1)?.priceId).not.toBe(LEGACY_PRO_YEARLY);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Upgrades
+  // -------------------------------------------------------------------------
+
+  describe("upgrades", () => {
+    // Every move to a higher tier, Starter -> Pro+ included, in any pair of cadences: one immediate
+    // change, never two steps. Tier beats interval — a year of Starter to a month of Pro is an
+    // upgrade, not a shortened cadence.
+    for (const [from, to, fromPlan, toPlan] of [
+      ["STARTER_MONTHLY", "PRO_MONTHLY", "STARTER", "PRO"],
+      ["PRO_MONTHLY", "PRO_PLUS_MONTHLY", "PRO", "PRO_PLUS"],
+      ["STARTER_MONTHLY", "PRO_PLUS_MONTHLY", "STARTER", "PRO_PLUS"],
+      ["STARTER_YEARLY", "PRO_YEARLY", "STARTER", "PRO"],
+      ["STARTER_YEARLY", "PRO_MONTHLY", "STARTER", "PRO"],
+      ["STARTER_MONTHLY", "PRO_YEARLY", "STARTER", "PRO"],
+      ["STARTER_YEARLY", "PRO_PLUS_YEARLY", "STARTER", "PRO_PLUS"],
+      ["STARTER_MONTHLY", "PRO_PLUS_YEARLY", "STARTER", "PRO_PLUS"],
+      ["PRO_YEARLY", "PRO_PLUS_YEARLY", "PRO", "PRO_PLUS"],
+      ["PRO_YEARLY", "PRO_PLUS_MONTHLY", "PRO", "PRO_PLUS"],
+      ["PRO_MONTHLY", "PRO_PLUS_YEARLY", "PRO", "PRO_PLUS"],
+    ] as const) {
+      it(`${from} -> ${to} is immediate once Stripe bills it`, async () => {
+        const { subscriptionId } = await givenSubscribed(from);
+        expect(await planOf()).toBe(fromPlan);
+
+        const response = await agent
+          .post("/billing/change")
+          .send({ priceKey: to })
+          .expect(201);
+
+        expect(response.body.effect).toBe("IMMEDIATE");
+        expect(response.body.kind).toBe("TIER_UPGRADE");
+        expect(response.body.plan).toBe(toPlan);
+        expect(await planOf()).toBe(toPlan);
+
+        expect(stripe.callCounts.get("updateSubscriptionPriceImmediately")).toBe(1);
+        expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+          currentPriceId: PRICE_IDS[to],
+          scheduledPhase: null,
+        });
+        const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+          where: { userId },
+        });
+        expect(mirror).toMatchObject({
+          plan: toPlan,
+          stripePriceId: PRICE_IDS[to],
+          pendingPlan: null,
+        });
+      });
+    }
 
     it("does not grant Pro when the upgrade payment fails", async () => {
       const { subscriptionId } = await givenSubscribed("STARTER_MONTHLY");
@@ -605,17 +800,6 @@ describe("billing", () => {
       expect(await planOf()).toBe("PRO");
     });
 
-    it("treats Starter yearly -> Pro monthly as an immediate upgrade, not a cadence change", async () => {
-      await givenSubscribed("STARTER_YEARLY");
-      const response = await agent
-        .post("/billing/change")
-        .send({ priceKey: "PRO_MONTHLY" })
-        .expect(201);
-      expect(response.body.kind).toBe("TIER_UPGRADE");
-      expect(response.body.effect).toBe("IMMEDIATE");
-      expect(await planOf()).toBe("PRO");
-    });
-
     it("keys the change idempotently on the transition itself", async () => {
       await givenSubscribed("STARTER_MONTHLY");
       await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }).expect(201);
@@ -628,43 +812,208 @@ describe("billing", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Downgrades and cadence changes
+  // Downgrades and scheduled changes
   // -------------------------------------------------------------------------
 
-  describe("downgrades and cadence changes", () => {
-    it("Pro -> Starter is scheduled, and Pro is kept until it is effective", async () => {
+  describe("downgrades and scheduled changes", () => {
+    // Every move to a lower tier waits for the end of the period already paid for, in any pair of
+    // cadences: tier beats interval, so a month of Pro to a year of Starter is a downgrade too.
+    for (const [from, to, fromPlan, toPlan] of [
+      ["PRO_MONTHLY", "STARTER_MONTHLY", "PRO", "STARTER"],
+      ["PRO_PLUS_MONTHLY", "PRO_MONTHLY", "PRO_PLUS", "PRO"],
+      ["PRO_PLUS_MONTHLY", "STARTER_MONTHLY", "PRO_PLUS", "STARTER"],
+      ["PRO_YEARLY", "STARTER_YEARLY", "PRO", "STARTER"],
+      ["PRO_YEARLY", "STARTER_MONTHLY", "PRO", "STARTER"],
+      ["PRO_MONTHLY", "STARTER_YEARLY", "PRO", "STARTER"],
+      ["PRO_PLUS_YEARLY", "PRO_YEARLY", "PRO_PLUS", "PRO"],
+      ["PRO_PLUS_YEARLY", "PRO_MONTHLY", "PRO_PLUS", "PRO"],
+      ["PRO_PLUS_MONTHLY", "PRO_YEARLY", "PRO_PLUS", "PRO"],
+      ["PRO_PLUS_YEARLY", "STARTER_YEARLY", "PRO_PLUS", "STARTER"],
+    ] as const) {
+      it(`${from} -> ${to} is scheduled, and ${fromPlan} is kept until it is effective`, async () => {
+        const { subscriptionId } = await givenSubscribed(from);
+        const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
+
+        const response = await agent
+          .post("/billing/change")
+          .send({ priceKey: to })
+          .expect(201);
+
+        expect(response.body.effect).toBe("SCHEDULED");
+        expect(response.body.kind).toBe("TIER_DOWNGRADE");
+        expect(response.body.effectiveAt).toBe(periodEnd.toISOString());
+        expect(response.body.plan).toBe(fromPlan);
+        expect(await planOf()).toBe(fromPlan);
+        expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
+
+        const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+          where: { userId },
+        });
+        expect(mirror.plan).toBe(fromPlan);
+        expect(mirror.pendingPlan).toBe(toPlan);
+        expect(mirror.pendingInterval).toBe(BILLING_CATALOG[to].interval);
+        expect(mirror.pendingPriceId).toBe(PRICE_IDS[to]);
+        expect(mirror.pendingEffectiveAt).toEqual(periodEnd);
+
+        // Stripe's phase transition arrives.
+        stripe.applyScheduledPhase(subscriptionId);
+        await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+        expect(await planOf()).toBe(toPlan);
+
+        const after = await prisma.billingSubscription.findUniqueOrThrow({
+          where: { userId },
+        });
+        expect(after.plan).toBe(toPlan);
+        expect(after.pendingPlan).toBeNull();
+      });
+    }
+
+    // Within one plan, a year is bought immediately (Stripe prorates the month already paid) and a
+    // month waits for the end of the paid year — sections 7–9 of the decision document.
+    for (const [from, to, plan] of [
+      ["STARTER_MONTHLY", "STARTER_YEARLY", "STARTER"],
+      ["PRO_MONTHLY", "PRO_YEARLY", "PRO"],
+      ["PRO_PLUS_MONTHLY", "PRO_PLUS_YEARLY", "PRO_PLUS"],
+    ] as const) {
+      it(`${from} -> ${to} is an immediate cadence change at the same tier`, async () => {
+        const { subscriptionId } = await givenSubscribed(from);
+        const response = await agent
+          .post("/billing/change")
+          .send({ priceKey: to })
+          .expect(201);
+
+        expect(response.body).toMatchObject({
+          kind: "CADENCE_LENGTHENED",
+          effect: "IMMEDIATE",
+          effectiveAt: null,
+          plan,
+        });
+        expect(await planOf()).toBe(plan);
+        expect(stripe.callCounts.get("updateSubscriptionPriceImmediately")).toBe(1);
+        expect(stripe.callCounts.get("scheduleSubscriptionPriceChange") ?? 0).toBe(0);
+        expect(stripe.subscriptions.get(subscriptionId)?.currentPriceId).toBe(PRICE_IDS[to]);
+
+        const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+          where: { userId },
+        });
+        expect(mirror).toMatchObject({
+          plan,
+          billingInterval: "YEAR",
+          stripePriceId: PRICE_IDS[to],
+          pendingPlan: null,
+        });
+      });
+    }
+
+    for (const [from, to, plan] of [
+      ["STARTER_YEARLY", "STARTER_MONTHLY", "STARTER"],
+      ["PRO_YEARLY", "PRO_MONTHLY", "PRO"],
+      ["PRO_PLUS_YEARLY", "PRO_PLUS_MONTHLY", "PRO_PLUS"],
+    ] as const) {
+      it(`${from} -> ${to} waits for the end of the paid year at the same tier`, async () => {
+        const { subscriptionId } = await givenSubscribed(from);
+        const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
+        const response = await agent
+          .post("/billing/change")
+          .send({ priceKey: to })
+          .expect(201);
+
+        expect(response.body).toMatchObject({
+          kind: "CADENCE_SHORTENED",
+          effect: "SCHEDULED",
+          effectiveAt: periodEnd.toISOString(),
+          plan,
+        });
+        expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
+
+        const mirror = await prisma.billingSubscription.findUniqueOrThrow({
+          where: { userId },
+        });
+        expect(mirror).toMatchObject({
+          plan,
+          billingInterval: "YEAR",
+          stripePriceId: PRICE_IDS[from],
+          pendingPlan: plan,
+          pendingInterval: "MONTH",
+          pendingPriceId: PRICE_IDS[to],
+          pendingEffectiveAt: periodEnd,
+        });
+        expect((await status()).subscription?.pendingChange).toEqual({
+          plan,
+          interval: "MONTH",
+          effectiveAt: periodEnd.toISOString(),
+        });
+
+        // The year ends; the month begins.
+        stripe.applyScheduledPhase(subscriptionId);
+        await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+        expect(await planOf()).toBe(plan);
+        expect(
+          await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } }),
+        ).toMatchObject({
+          billingInterval: "MONTH",
+          stripePriceId: PRICE_IDS[to],
+          pendingPlan: null,
+        });
+      });
+    }
+
+    it("an immediate tier upgrade from a year releases a scheduled move to monthly (BILL-01)", async () => {
+      // Starter yearly → (scheduled) Starter monthly, then Pro monthly: left attached, the schedule
+      // would move the upgraded subscription back to Starter at the end of the Starter year.
+      const { subscriptionId } = await givenSubscribed("STARTER_YEARLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      expect((await status()).subscription?.pendingChange).toMatchObject({
+        plan: "STARTER",
+        interval: "MONTH",
+      });
+
+      await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }).expect(201);
+      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_MONTHLY,
+        scheduleId: null,
+        scheduledPhase: null,
+      });
+      expect(await planOf()).toBe("PRO");
+      expect((await status()).subscription?.pendingChange).toBeNull();
+    });
+
+    it("a year bought over a scheduled downgrade releases the downgrade (BILL-01)", async () => {
+      // Pro monthly → (scheduled) Starter monthly, then a year of Pro: the customer pays for the year
+      // and must not be moved to Starter at the old monthly boundary.
       const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
 
       const response = await agent
         .post("/billing/change")
-        .send({ priceKey: "STARTER_MONTHLY" })
+        .send({ priceKey: "PRO_YEARLY" })
         .expect(201);
-
-      expect(response.body.effect).toBe("SCHEDULED");
-      expect(response.body.kind).toBe("TIER_DOWNGRADE");
-      expect(response.body.effectiveAt).toBeTruthy();
-      expect(response.body.plan).toBe("PRO");
+      expect(response.body).toMatchObject({ kind: "CADENCE_LENGTHENED", effect: "IMMEDIATE" });
+      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_YEARLY,
+        scheduleId: null,
+        scheduledPhase: null,
+      });
       expect(await planOf()).toBe("PRO");
+      expect((await status()).subscription?.pendingChange).toBeNull();
+    });
 
-      const mirror = await prisma.billingSubscription.findUniqueOrThrow({
-        where: { userId },
+    it("a year whose payment fails keeps the month already paid for", async () => {
+      const { subscriptionId } = await givenSubscribed("PRO_PLUS_MONTHLY");
+      stripe.failNextImmediateChange = true;
+
+      const response = await agent
+        .post("/billing/change")
+        .send({ priceKey: "PRO_PLUS_YEARLY" })
+        .expect(201);
+      expect(response.body.plan).toBe("PRO_PLUS");
+      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
+        currentPriceId: PRICE_IDS.PRO_PLUS_MONTHLY,
+        pendingPriceId: PRICE_IDS.PRO_PLUS_YEARLY,
       });
-      expect(mirror.plan).toBe("PRO");
-      expect(mirror.pendingPlan).toBe("STARTER");
-      expect(mirror.pendingInterval).toBe("MONTH");
-      expect(mirror.pendingPriceId).toBe(PRICE_IDS.STARTER_MONTHLY);
-      expect(mirror.pendingEffectiveAt).not.toBeNull();
-
-      // Stripe's phase transition arrives.
-      stripe.applyScheduledPhase(subscriptionId);
-      await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
-      expect(await planOf()).toBe("STARTER");
-
-      const after = await prisma.billingSubscription.findUniqueOrThrow({
-        where: { userId },
-      });
-      expect(after.plan).toBe("STARTER");
-      expect(after.pendingPlan).toBeNull();
+      expect(
+        await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } }),
+      ).toMatchObject({ billingInterval: "MONTH", stripePriceId: PRICE_IDS.PRO_PLUS_MONTHLY });
     });
 
     it("applies a scheduled downgrade even if the new renewal enters recovery", async () => {
@@ -676,43 +1025,6 @@ describe("billing", () => {
 
       await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
       expect(await planOf()).toBe("STARTER");
-    });
-
-    it("Starter monthly -> Starter yearly is an immediate cadence change at the same tier", async () => {
-      await givenSubscribed("STARTER_MONTHLY");
-      const response = await agent
-        .post("/billing/change")
-        .send({ priceKey: "STARTER_YEARLY" })
-        .expect(201);
-
-      expect(response.body.kind).toBe("CADENCE_LENGTHENED");
-      expect(response.body.effect).toBe("IMMEDIATE");
-      expect(await planOf()).toBe("STARTER");
-
-      const mirror = await prisma.billingSubscription.findUniqueOrThrow({
-        where: { userId },
-      });
-      expect(mirror.billingInterval).toBe("YEAR");
-      expect(mirror.pendingPlan).toBeNull();
-    });
-
-    it("Pro yearly -> Pro monthly is scheduled at the same tier", async () => {
-      await givenSubscribed("PRO_YEARLY");
-      const response = await agent
-        .post("/billing/change")
-        .send({ priceKey: "PRO_MONTHLY" })
-        .expect(201);
-
-      expect(response.body.kind).toBe("CADENCE_SHORTENED");
-      expect(response.body.effect).toBe("SCHEDULED");
-      expect(await planOf()).toBe("PRO");
-
-      const mirror = await prisma.billingSubscription.findUniqueOrThrow({
-        where: { userId },
-      });
-      expect(mirror.billingInterval).toBe("YEAR");
-      expect(mirror.pendingInterval).toBe("MONTH");
-      expect(mirror.pendingPlan).toBe("PRO");
     });
 
     it("releases the schedule once the change applies, so cancellation still works", async () => {
@@ -755,7 +1067,7 @@ describe("billing", () => {
     it("keeps the schedule while its change is still pending", async () => {
       // The other half: a schedule with work left must not be released, or the scheduled change
       // would simply never happen.
-      await givenSubscribed("PRO_YEARLY");
+      const { subscriptionId } = await givenSubscribed("PRO_PLUS_MONTHLY");
       await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }).expect(201);
       await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
 
@@ -763,42 +1075,54 @@ describe("billing", () => {
         where: { userId },
       });
       expect(mirror.stripeScheduleId).not.toBeNull();
-      expect(mirror.pendingInterval).toBe("MONTH");
+      expect(mirror.pendingPlan).toBe("PRO");
+      expect(stripe.subscriptions.get(subscriptionId)?.scheduledPhase).toMatchObject({
+        priceId: PRICE_IDS.PRO_MONTHLY,
+      });
+      expect(await planOf()).toBe("PRO_PLUS");
     });
 
     /**
      * Pre-release audit 2026-10-16, finding BILL-01 (`docs/audits/pre-release-audit-2026-10-16.md`),
      * reproduced in the Stripe sandbox (`billing-lifecycle.sandbox.test.ts`): the user paid $270 for
-     * PRO_YEARLY, the downgrade's schedule stayed attached, and at the old monthly boundary Stripe
-     * moved the subscription to STARTER_MONTHLY with no credit. The fake keeps a schedule across an
-     * immediate update exactly as Stripe does, so only the release before the update stops it.
+     * the then-sold PRO_YEARLY, the downgrade's schedule stayed attached, and at the old monthly
+     * boundary Stripe moved the subscription to STARTER_MONTHLY with no credit. With one price per
+     * tier the same path is Pro -> (scheduled) Starter, then Pro+: the customer pays the Pro+
+     * proration and must still be on Pro+ when the downgrade's boundary arrives. The fake keeps a
+     * schedule across an immediate update exactly as Stripe does, so only the release before the
+     * update stops it.
      */
     it("an immediate upgrade releases a scheduled downgrade, so it can never apply (BILL-01)", async () => {
       const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
-      const monthlyEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
+      const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
       await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
       expect(stripe.subscriptions.get(subscriptionId)?.scheduledPhase).not.toBeNull();
+      expect((await status()).subscription?.pendingChange).toMatchObject({
+        plan: "STARTER",
+        interval: "MONTH",
+      });
 
       const upgrade = await agent
         .post("/billing/change")
-        .send({ priceKey: "PRO_YEARLY" })
+        .send({ priceKey: "PRO_PLUS_MONTHLY" })
         .expect(201);
       expect(upgrade.body).toMatchObject({
         effect: "IMMEDIATE",
-        kind: "CADENCE_LENGTHENED",
-        plan: "PRO",
+        kind: "TIER_UPGRADE",
+        plan: "PRO_PLUS",
       });
 
-      // Released at Stripe, before the update: nothing is left to move the customer at the old
-      // monthly boundary, and the year they paid for runs from now.
+      // Released at Stripe, before the update. The boundary the downgrade was scheduled for is
+      // still the next renewal, and when it arrives there is nothing left to apply.
       const live = stripe.subscriptions.get(subscriptionId)!;
       expect(live).toMatchObject({
-        currentPriceId: PRICE_IDS.PRO_YEARLY,
+        currentPriceId: PRICE_IDS.PRO_PLUS_MONTHLY,
+        currentPeriodEnd: periodEnd,
         scheduleId: null,
         scheduledPhase: null,
       });
-      expect(live.currentPeriodEnd.getTime()).toBeGreaterThan(
-        monthlyEnd.getTime() + 300 * 86_400_000,
+      expect(() => stripe.applyScheduledPhase(subscriptionId)).toThrow(
+        /no scheduled phase/,
       );
       expect(stripe.callCounts.get("releaseSubscriptionSchedule")).toBe(1);
 
@@ -807,36 +1131,17 @@ describe("billing", () => {
       });
       expect({
         plan: await planOf(),
-        interval: mirror.billingInterval,
+        mirroredPlan: mirror.plan,
         pendingPlan: mirror.pendingPlan,
         pendingEffectiveAt: mirror.pendingEffectiveAt,
         stripeScheduleId: mirror.stripeScheduleId,
       }).toEqual({
-        plan: "PRO",
-        interval: "YEAR",
+        plan: "PRO_PLUS",
+        mirroredPlan: "PRO_PLUS",
         pendingPlan: null,
         pendingEffectiveAt: null,
         stripeScheduleId: null,
       });
-      expect((await status()).subscription?.pendingChange).toBeNull();
-    });
-
-    it("an immediate tier upgrade from yearly releases a scheduled cadence change too", async () => {
-      // Starter yearly → (scheduled) Starter monthly, then Pro monthly: the other path into BILL-01.
-      const { subscriptionId } = await givenSubscribed("STARTER_YEARLY");
-      await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
-      expect((await status()).subscription?.pendingChange).toMatchObject({
-        plan: "STARTER",
-        interval: "MONTH",
-      });
-
-      await agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }).expect(201);
-      expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
-        currentPriceId: PRICE_IDS.PRO_MONTHLY,
-        scheduleId: null,
-        scheduledPhase: null,
-      });
-      expect(await planOf()).toBe("PRO");
       expect((await status()).subscription?.pendingChange).toBeNull();
     });
 
@@ -847,34 +1152,37 @@ describe("billing", () => {
 
       const response = await agent
         .post("/billing/change")
-        .send({ priceKey: "PRO_YEARLY" })
+        .send({ priceKey: "PRO_PLUS_MONTHLY" })
         .expect(201);
       expect(response.body.plan).toBe("PRO");
 
-      // Stripe holds the unpaid update; the customer stays on the monthly price already paid for,
-      // with no pending change — the newer request superseded the older one either way.
+      // Stripe holds the unpaid update; the customer stays on the Pro price already paid for, with
+      // no pending change — the newer request superseded the older one either way.
       const live = stripe.subscriptions.get(subscriptionId)!;
       expect(live).toMatchObject({
         currentPriceId: PRICE_IDS.PRO_MONTHLY,
-        pendingPriceId: PRICE_IDS.PRO_YEARLY,
+        pendingPriceId: PRICE_IDS.PRO_PLUS_MONTHLY,
         scheduleId: null,
       });
       const mirror = await prisma.billingSubscription.findUniqueOrThrow({
         where: { userId },
       });
       expect(mirror).toMatchObject({
-        billingInterval: "MONTH",
+        plan: "PRO",
+        stripePriceId: PRICE_IDS.PRO_MONTHLY,
         pendingPlan: null,
         stripeScheduleId: null,
       });
+      expect(await planOf()).toBe("PRO");
 
-      // Once the held update is paid, the year arrives.
+      // Once the held update is paid, Pro+ arrives.
       stripe.applyPendingUpdate(subscriptionId);
       await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
+      expect(await planOf()).toBe("PRO_PLUS");
       expect(
         (await prisma.billingSubscription.findUniqueOrThrow({ where: { userId } }))
-          .billingInterval,
-      ).toBe("YEAR");
+          .plan,
+      ).toBe("PRO_PLUS");
     });
 
     it("bills nothing when the superseded schedule cannot be released", async () => {
@@ -884,10 +1192,11 @@ describe("billing", () => {
 
       const response = await agent
         .post("/billing/change")
-        .send({ priceKey: "PRO_YEARLY" });
+        .send({ priceKey: "PRO_PLUS_MONTHLY" });
       expect(response.status).toBeGreaterThanOrEqual(500);
       expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
-      // Exactly as before the request: still monthly, the downgrade still scheduled.
+      // Exactly as before the request: still on Pro, the downgrade still scheduled.
+      expect(await planOf()).toBe("PRO");
       expect(stripe.subscriptions.get(subscriptionId)).toMatchObject({
         currentPriceId: PRICE_IDS.PRO_MONTHLY,
         scheduledPhase: expect.objectContaining({ priceId: PRICE_IDS.STARTER_MONTHLY }),
@@ -898,13 +1207,15 @@ describe("billing", () => {
     });
 
     it("can schedule the same change again after an upgrade released it", async () => {
-      // Starter yearly keeps its period end through a same-interval upgrade, so asking for the same
+      // Pro keeps its period end through a same-interval upgrade to Pro+, so asking for the same
       // downgrade again names the same subscription, price and boundary. A creation key derived from
       // those alone would make Stripe hand back the schedule the upgrade just released.
-      const { subscriptionId } = await givenSubscribed("STARTER_YEARLY");
+      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
       await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
-      await agent.post("/billing/change").send({ priceKey: "PRO_YEARLY" }).expect(201);
+      await agent.post("/billing/change").send({ priceKey: "PRO_PLUS_MONTHLY" }).expect(201);
       await agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }).expect(201);
+      expect(stripe.subscriptions.get(subscriptionId)?.currentPeriodEnd).toEqual(periodEnd);
 
       const keys = stripe.idempotencyKeys
         .filter((entry) => entry.operation === "scheduleSubscriptionPriceChange")
@@ -917,28 +1228,38 @@ describe("billing", () => {
     });
 
     it("applies two simultaneous changes one after the other, each on live state", async () => {
-      // Without serialization both requests read the same live snapshot: the upgrade finds no
-      // schedule to release, the downgrade schedules itself at the old monthly boundary, and the
-      // customer is back in BILL-01's state — a paid year with Starter scheduled a month out.
-      const { subscriptionId } = await givenSubscribed("PRO_MONTHLY");
+      // Without serialization both requests read the same live snapshot and both classify from
+      // Starter: two immediate upgrades from one starting price, so the customer is billed a
+      // proration for each and ends on whichever update Stripe applied last — Pro, if that was the
+      // Pro one, after paying for Pro+.
+      const { subscriptionId } = await givenSubscribed("STARTER_MONTHLY");
+      const periodEnd = stripe.subscriptions.get(subscriptionId)!.currentPeriodEnd;
       stripe.loadLatencyMs = 25;
 
-      const [downgrade, upgrade] = await Promise.all([
-        agent.post("/billing/change").send({ priceKey: "STARTER_MONTHLY" }),
-        agent.post("/billing/change").send({ priceKey: "PRO_YEARLY" }),
+      const [toPro, toProPlus] = await Promise.all([
+        agent.post("/billing/change").send({ priceKey: "PRO_MONTHLY" }),
+        agent.post("/billing/change").send({ priceKey: "PRO_PLUS_MONTHLY" }),
       ]);
-      expect([downgrade.status, upgrade.status]).toEqual([201, 201]);
+      expect([toPro.status, toProPlus.status]).toEqual([201, 201]);
+
+      // Whichever ran second saw the first: Pro then Pro -> Pro+, or Pro+ then a Pro+ -> Pro
+      // downgrade waiting for the end of the period paid for. Exactly one change ever left Starter.
+      const updates = stripe.idempotencyKeys
+        .filter((entry) => entry.operation === "updateSubscriptionPriceImmediately")
+        .map((entry) => entry.key);
+      expect(
+        updates.filter((key) => key.includes(PRICE_IDS.STARTER_MONTHLY)),
+      ).toHaveLength(1);
 
       const live = stripe.subscriptions.get(subscriptionId)!;
-      expect(live.currentPriceId).toBe(PRICE_IDS.PRO_YEARLY);
-      // Whichever ran second saw the first: either nothing is pending, or the downgrade waits for
-      // the end of the year that was paid for — never for the abandoned monthly boundary.
+      expect(live.currentPriceId).toBe(PRICE_IDS.PRO_PLUS_MONTHLY);
       if (live.scheduledPhase) {
-        expect(live.scheduledPhase.startsAt?.getTime()).toBe(
-          live.currentPeriodEnd.getTime(),
-        );
+        expect(live.scheduledPhase).toEqual({
+          priceId: PRICE_IDS.PRO_MONTHLY,
+          startsAt: periodEnd,
+        });
       }
-      expect(await planOf()).toBe("PRO");
+      expect(await planOf()).toBe("PRO_PLUS");
     });
 
     it("refuses the second of two identical upgrades instead of billing it again", async () => {
@@ -954,14 +1275,18 @@ describe("billing", () => {
       expect(await planOf()).toBe("PRO");
     });
 
-    it("refuses a change to the price already held", async () => {
-      await givenSubscribed("PRO_MONTHLY");
-      const response = await agent
-        .post("/billing/change")
-        .send({ priceKey: "PRO_MONTHLY" })
-        .expect(409);
-      expect(response.body.code).toBe("BILLING_CHANGE_NOT_ALLOWED");
-    });
+    for (const priceKey of ALL_PRICE_KEYS) {
+      it(`refuses a change to the price already held (${priceKey})`, async () => {
+        await givenSubscribed(priceKey);
+        const response = await agent
+          .post("/billing/change")
+          .send({ priceKey })
+          .expect(409);
+        expect(response.body.code).toBe("BILLING_CHANGE_NOT_ALLOWED");
+        expect(stripe.callCounts.get("updateSubscriptionPriceImmediately") ?? 0).toBe(0);
+        expect(stripe.callCounts.get("scheduleSubscriptionPriceChange") ?? 0).toBe(0);
+      });
+    }
 
     it("refuses a change with no subscription at all", async () => {
       const response = await agent
@@ -1005,7 +1330,7 @@ describe("billing", () => {
     });
 
     it("preserves the plan when a cancellation is reversed before period end", async () => {
-      const { subscriptionId, customerId } = await givenSubscribed("STARTER_YEARLY");
+      const { subscriptionId, customerId } = await givenSubscribed("STARTER_MONTHLY");
       stripe.scheduleCancellation(subscriptionId);
       await deliverWebhook(subscriptionEvent(subscriptionId, customerId)).expect(200);
       expect(await planOf()).toBe("STARTER");
@@ -1072,7 +1397,7 @@ describe("billing", () => {
     });
 
     it("becomes FREE at the terminal unpaid state", async () => {
-      const { subscriptionId, customerId } = await givenSubscribed("PRO_YEARLY");
+      const { subscriptionId, customerId } = await givenSubscribed("PRO_PLUS_MONTHLY");
       stripe.setStatus(subscriptionId, "unpaid");
       await deliverWebhook(subscriptionEvent(subscriptionId, customerId)).expect(200);
       expect(await planOf()).toBe("FREE");
@@ -1208,7 +1533,7 @@ describe("billing", () => {
     it("converges to the same state whatever order events arrive in", async () => {
       const { subscriptionId, customerId } = await givenSubscribed("STARTER_MONTHLY");
       stripe.failNextImmediateChange = false;
-      stripe.subscriptions.get(subscriptionId)!.currentPriceId = PRICE_IDS.PRO_YEARLY;
+      stripe.subscriptions.get(subscriptionId)!.currentPriceId = PRICE_IDS.PRO_MONTHLY;
 
       // invoice.paid before customer.subscription.updated, i.e. the reverse of creation order.
       await deliverWebhook(
@@ -1288,7 +1613,7 @@ describe("billing", () => {
       expect(await planOf()).toBe("PRO");
 
       stripe.subscriptions.get(subscriptionId)!.currentPriceId =
-        PRICE_IDS.STARTER_YEARLY;
+        PRICE_IDS.STARTER_MONTHLY;
       await deliverWebhook(subscriptionEvent(subscriptionId, customerId)).expect(200);
 
       const [user, mirror] = await Promise.all([
@@ -1298,7 +1623,7 @@ describe("billing", () => {
       // The row justifying the plan and the plan itself always agree: they commit together.
       expect(user.plan).toBe("STARTER");
       expect(mirror.plan).toBe("STARTER");
-      expect(mirror.billingInterval).toBe("YEAR");
+      expect(mirror.stripePriceId).toBe(PRICE_IDS.STARTER_MONTHLY);
     });
   });
 
@@ -1321,7 +1646,7 @@ describe("billing", () => {
       });
       stripe.seedSubscription({
         customerId,
-        priceId: PRICE_IDS.PRO_YEARLY,
+        priceId: PRICE_IDS.PRO_PLUS_MONTHLY,
         created: new Date(),
       });
 
@@ -1340,7 +1665,7 @@ describe("billing", () => {
       const { subscriptionId, customerId } = await givenSubscribed("STARTER_MONTHLY");
       stripe.seedSubscription({
         customerId,
-        priceId: PRICE_IDS.PRO_YEARLY,
+        priceId: PRICE_IDS.PRO_PLUS_MONTHLY,
         created: new Date(Date.now() - 86_400_000),
       });
 
@@ -1365,19 +1690,19 @@ describe("billing", () => {
         where: { id: userId },
         data: { stripeCustomerId: customerId },
       });
-      stripe.seedSubscription({ customerId, priceId: PRICE_IDS.PRO_YEARLY });
+      stripe.seedSubscription({ customerId, priceId: PRICE_IDS.PRO_PLUS_MONTHLY });
 
       // No webhook at all — the outage case.
       expect(await planOf()).toBe("FREE");
 
       const result = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
-      expect(result.plan).toBe("PRO");
+      expect(result.plan).toBe("PRO_PLUS");
       expect(result.planChanged).toBe(true);
-      expect(await planOf()).toBe("PRO");
+      expect(await planOf()).toBe("PRO_PLUS");
     });
 
     it("is idempotent when run repeatedly", async () => {
-      await givenSubscribed("STARTER_YEARLY");
+      await givenSubscribed("STARTER_MONTHLY");
       const first = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
       const second = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
       const third = await reconciliation.reconcileUser({ userId, trigger: "MANUAL" });
@@ -1480,21 +1805,32 @@ describe("billing", () => {
       expect(body.canStartCheckout).toBe(true);
       expect(body.canOpenPortal).toBe(false);
       expect(body.canChangePlan).toBe(false);
-      expect(body.catalog.map((entry) => entry.key)).toEqual([
-        "STARTER_MONTHLY",
-        "STARTER_YEARLY",
-        "PRO_MONTHLY",
-        "PRO_YEARLY",
+      expect(
+        body.catalog.map((entry) => [
+          entry.key,
+          entry.plan,
+          entry.interval,
+          entry.amountMinorUnits,
+          entry.currency,
+        ]),
+      ).toEqual([
+        ["STARTER_MONTHLY", "STARTER", "MONTH", 1_900, "usd"],
+        ["STARTER_YEARLY", "STARTER", "YEAR", 16_900, "usd"],
+        ["PRO_MONTHLY", "PRO", "MONTH", 4_900, "usd"],
+        ["PRO_YEARLY", "PRO", "YEAR", 43_900, "usd"],
+        ["PRO_PLUS_MONTHLY", "PRO_PLUS", "MONTH", 19_900, "usd"],
+        ["PRO_PLUS_YEARLY", "PRO_PLUS", "YEAR", 179_000, "usd"],
       ]);
     });
 
     it("reports a paid user's interval, renewal and management options", async () => {
-      await givenSubscribed("PRO_YEARLY");
+      await givenSubscribed("PRO_PLUS_MONTHLY");
       const body = await status();
 
-      expect(body.plan).toBe("PRO");
-      expect(body.subscription?.plan).toBe("PRO");
-      expect(body.subscription?.interval).toBe("YEAR");
+      expect(body.plan).toBe("PRO_PLUS");
+      expect(body.subscription?.plan).toBe("PRO_PLUS");
+      expect(body.subscription?.interval).toBe("MONTH");
+      expect(body.subscription?.legacyPrice).toBe(false);
       expect(body.subscription?.status).toBe("ACTIVE");
       expect(body.subscription?.currentPeriodEnd).toBeTruthy();
       expect(body.canStartCheckout).toBe(false);

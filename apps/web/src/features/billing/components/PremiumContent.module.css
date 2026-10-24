@@ -1,0 +1,31 @@
+/* The padlock inside a locked Premium badge: sized to the badge's label, drawn in its ink. */
+.lock {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+
+/* "Included in Pro and Pro+. See plans" under a locked item's name. Secondary text at the weight of
+   the description beside it, never the emphasis a phone card gives the identity it sits in. */
+.hint {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: var(--line-height-body);
+}
+
+.link {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}

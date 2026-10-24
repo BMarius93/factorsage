@@ -9,6 +9,7 @@ import {
   assertCanCreateCustomStrategy,
   assertCanEnableMonitor,
   assertCanRunLiveBacktest,
+  assertCanUsePremiumContent,
   assertListSymbolLimit,
   EntitlementError,
   ENTITLEMENT_REASON_CODES,
@@ -28,7 +29,7 @@ import { backtestPeriodYears } from "./dates.js";
 
 /**
  * The commercial matrix, proven number by number against
- * `docs/decisions/entitlements-v1.md`.
+ * `docs/decisions/entitlements-v2.md`.
  *
  * A static matrix is not evidence on its own — the enforcement suites in `apps/api` and
  * `apps/worker` are what prove a limit is applied — but every one of those suites reads its
@@ -61,15 +62,14 @@ function reasonOf(run: () => void): EntitlementReasonCode {
 }
 
 describe("commercial plans", () => {
-  it("persists exactly FREE, STARTER and PRO", () => {
-    expect([...USER_PLANS]).toEqual(["FREE", "STARTER", "PRO"]);
+  it("persists exactly FREE, STARTER, PRO and PRO_PLUS, cheapest first", () => {
+    expect([...USER_PLANS]).toEqual(["FREE", "STARTER", "PRO", "PRO_PLUS"]);
   });
 
-  it("has no GUEST, ADMIN or Pro+ plan", () => {
+  it("has no GUEST or ADMIN plan", () => {
     const names = USER_PLANS as readonly string[];
     expect(names).not.toContain("GUEST");
     expect(names).not.toContain("ADMIN");
-    expect(names).not.toContain("PRO_PLUS");
   });
 
   it("resolves Guest from the absence of a session, with no user id anywhere", () => {
@@ -81,44 +81,56 @@ describe("commercial plans", () => {
 });
 
 describe("the entitlement matrix", () => {
-  it("caps symbols per custom list at 10 / 50 / 100", () => {
+  it("caps symbols per custom list at 10 / 50 / 750 / 1,000", () => {
     expect(plan("FREE").lists.maxSymbols).toBe(10);
     expect(plan("STARTER").lists.maxSymbols).toBe(50);
-    expect(plan("PRO").lists.maxSymbols).toBe(100);
+    expect(plan("PRO").lists.maxSymbols).toBe(750);
+    expect(plan("PRO_PLUS").lists.maxSymbols).toBe(1_000);
   });
 
-  it("caps symbols per live backtest at 10 / 50 / 100", () => {
+  it("caps symbols per live backtest at the same 10 / 50 / 750 / 1,000", () => {
     expect(plan("FREE").backtests.maxSymbols).toBe(10);
     expect(plan("STARTER").backtests.maxSymbols).toBe(50);
-    expect(plan("PRO").backtests.maxSymbols).toBe(100);
+    expect(plan("PRO").backtests.maxSymbols).toBe(750);
+    expect(plan("PRO_PLUS").backtests.maxSymbols).toBe(1_000);
   });
 
-  it("extends only Pro to the point-in-time index universe, by simultaneous members", () => {
+  it("includes point-in-time universes in Pro and Pro+ only, by simultaneous members", () => {
     expect(GUEST.backtests.maxIndexUniverseConstituents).toBe(0);
     expect(plan("FREE").backtests.maxIndexUniverseConstituents).toBe(0);
     expect(plan("STARTER").backtests.maxIndexUniverseConstituents).toBe(0);
-    expect(plan("PRO").backtests.maxIndexUniverseConstituents).toBe(550);
-    // The custom-list limit is untouched by the extension.
-    expect(plan("PRO").backtests.maxSymbols).toBe(100);
+    expect(plan("PRO").backtests.maxIndexUniverseConstituents).toBe(750);
+    expect(plan("PRO_PLUS").backtests.maxIndexUniverseConstituents).toBe(1_000);
   });
 
-  it("caps backtest history at 5 / 15 / 30 years", () => {
-    expect(plan("FREE").backtests.maxHistoricalYears).toBe(5);
-    expect(plan("STARTER").backtests.maxHistoricalYears).toBe(15);
+  it("allows backtest periods of up to 30 years on every plan", () => {
+    expect(plan("FREE").backtests.maxHistoricalYears).toBe(30);
+    expect(plan("STARTER").backtests.maxHistoricalYears).toBe(30);
     expect(plan("PRO").backtests.maxHistoricalYears).toBe(30);
+    expect(plan("PRO_PLUS").backtests.maxHistoricalYears).toBe(30);
   });
 
-  it("caps concurrent live backtests at 1 / 1 / 2", () => {
+  it("runs 1 / 1 / 1 / 2 concurrent live backtests per user", () => {
     expect(plan("FREE").backtests.maxConcurrentRuns).toBe(1);
     expect(plan("STARTER").backtests.maxConcurrentRuns).toBe(1);
-    expect(plan("PRO").backtests.maxConcurrentRuns).toBe(2);
+    expect(plan("PRO").backtests.maxConcurrentRuns).toBe(1);
+    expect(plan("PRO_PLUS").backtests.maxConcurrentRuns).toBe(2);
   });
 
-  it("caps active monitors at 1 / 3 / 10, and at 0 for a Guest", () => {
+  it("caps active monitors at 1 / 5 and leaves Pro and Pro+ unlimited, and 0 for a Guest", () => {
     expect(GUEST.monitors.maxActive).toBe(0);
     expect(plan("FREE").monitors.maxActive).toBe(1);
-    expect(plan("STARTER").monitors.maxActive).toBe(3);
-    expect(plan("PRO").monitors.maxActive).toBe(10);
+    expect(plan("STARTER").monitors.maxActive).toBe(5);
+    expect(plan("PRO").monitors.maxActive).toBeNull();
+    expect(plan("PRO_PLUS").monitors.maxActive).toBeNull();
+  });
+
+  it("includes premium built-in content in Pro and Pro+ only", () => {
+    expect(GUEST.builtInContent.canUsePremium).toBe(false);
+    expect(plan("FREE").builtInContent.canUsePremium).toBe(false);
+    expect(plan("STARTER").builtInContent.canUsePremium).toBe(false);
+    expect(plan("PRO").builtInContent.canUsePremium).toBe(true);
+    expect(plan("PRO_PLUS").builtInContent.canUsePremium).toBe(true);
   });
 
   it("leaves saved custom List and Strategy counts unlimited on every paid and free tier", () => {
@@ -146,16 +158,19 @@ describe("the entitlement matrix", () => {
     }
   });
 
-  it("lets every access state read built-in content", () => {
+  it("lets every access state read standard built-in content", () => {
     for (const entitlements of [GUEST, ...USER_PLANS.map(plan)]) {
       expect(entitlements.builtInContent.canViewLists).toBe(true);
       expect(entitlements.builtInContent.canViewStrategies).toBe(true);
     }
   });
 
-  it("keeps every Backtest, demo included, behind a session", () => {
-    expect(GUEST.backtests.canViewDemo).toBe(false);
+  it("shows a Guest the precomputed demonstration backtests and runs nothing for them", () => {
+    expect(GUEST.backtests.canViewDemo).toBe(true);
     expect(GUEST.backtests.canRunLive).toBe(false);
+    for (const value of USER_PLANS) {
+      expect(plan(value).backtests.canViewDemo).toBe(true);
+    }
   });
 
   it("denies a Guest everything that persists content or executes work", () => {
@@ -183,6 +198,7 @@ describe("the ADMIN role", () => {
     expect(freeAdmin.lists.maxSymbols).toBeNull();
     expect(freeAdmin.backtests.maxIndexUniverseConstituents).toBeNull();
     expect(freeAdmin.monitors.maxActive).toBeNull();
+    expect(freeAdmin.builtInContent.canUsePremium).toBe(true);
     // Still a FREE customer commercially: the role never becomes a plan.
     expect(ADMIN_ENTITLEMENTS.tier).toBe("ADMIN");
   });
@@ -202,6 +218,7 @@ describe("the ADMIN role", () => {
       role: "ADMIN",
     });
     expect(PLAN_ENTITLEMENTS.FREE.lists.maxSymbols).toBe(10);
+    expect(PLAN_ENTITLEMENTS.FREE.builtInContent.canUsePremium).toBe(false);
     expect(PLAN_ENTITLEMENTS.FREE.admin.canAccessAdminSurfaces).toBe(false);
     expect(GUEST_ENTITLEMENTS.authenticated).toBe(false);
   });
@@ -210,13 +227,34 @@ describe("the ADMIN role", () => {
 describe("backtest universe limit", () => {
   it("holds an ordinary List to the symbol limit, built-in or not", () => {
     expect(() =>
-      assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 100 }),
+      assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 750 }),
     ).not.toThrow();
     expect(
       reasonOf(() =>
-        assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 101 }),
+        assertBacktestUniverseLimit(plan("PRO"), { kind: "LIST", symbols: 751 }),
       ),
     ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+    expect(() =>
+      assertBacktestUniverseLimit(plan("PRO_PLUS"), { kind: "LIST", symbols: 1_000 }),
+    ).not.toThrow();
+    expect(
+      reasonOf(() =>
+        assertBacktestUniverseLimit(plan("PRO_PLUS"), { kind: "LIST", symbols: 1_001 }),
+      ),
+    ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
+  });
+
+  it("refuses a point-in-time universe as premium content, before any size", () => {
+    for (const value of ["FREE", "STARTER"] as const) {
+      expect(
+        reasonOf(() =>
+          assertBacktestUniverseLimit(plan(value), {
+            kind: "POINT_IN_TIME_INDEX",
+            peakSimultaneousMembers: 1,
+          }),
+        ),
+      ).toBe("ENTITLEMENT_PREMIUM_CONTENT");
+    }
   });
 
   it("measures the index universe by simultaneous members, against its own limit", () => {
@@ -231,20 +269,10 @@ describe("backtest universe limit", () => {
       reasonOf(() =>
         assertBacktestUniverseLimit(plan("PRO"), {
           kind: "POINT_IN_TIME_INDEX",
-          peakSimultaneousMembers: 551,
+          peakSimultaneousMembers: 751,
         }),
       ),
     ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
-    for (const value of ["FREE", "STARTER"] as const) {
-      expect(
-        reasonOf(() =>
-          assertBacktestUniverseLimit(plan(value), {
-            kind: "POINT_IN_TIME_INDEX",
-            peakSimultaneousMembers: 1,
-          }),
-        ),
-      ).toBe("ENTITLEMENT_BACKTEST_SYMBOL_LIMIT");
-    }
     const admin = resolveEntitlements({
       kind: "AUTHENTICATED",
       userId: "user-1",
@@ -257,6 +285,34 @@ describe("backtest universe limit", () => {
         peakSimultaneousMembers: 507,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("premium built-in content", () => {
+  it("refuses every premium kind on Free and Starter, and permits it on Pro, Pro+ and Admin", () => {
+    for (const kind of ["LIST", "STRATEGY", "INDEX_UNIVERSE"] as const) {
+      for (const value of ["FREE", "STARTER"] as const) {
+        expect(reasonOf(() => assertCanUsePremiumContent(plan(value), kind))).toBe(
+          "ENTITLEMENT_PREMIUM_CONTENT",
+        );
+      }
+      expect(reasonOf(() => assertCanUsePremiumContent(GUEST, kind))).toBe(
+        "ENTITLEMENT_PREMIUM_CONTENT",
+      );
+      expect(() => assertCanUsePremiumContent(plan("PRO"), kind)).not.toThrow();
+      expect(() => assertCanUsePremiumContent(plan("PRO_PLUS"), kind)).not.toThrow();
+      expect(() =>
+        assertCanUsePremiumContent(
+          resolveEntitlements({
+            kind: "AUTHENTICATED",
+            userId: "user-1",
+            plan: "FREE",
+            role: "ADMIN",
+          }),
+          kind,
+        ),
+      ).not.toThrow();
+    }
   });
 });
 
@@ -317,15 +373,19 @@ describe("semantic assertions", () => {
     expect(reasonOf(() => assertBacktestSymbolLimit(plan("STARTER"), 51))).toBe(
       "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT",
     );
-    expect(() => assertBacktestHistoricalDepth(plan("FREE"), 5)).not.toThrow();
-    expect(reasonOf(() => assertBacktestHistoricalDepth(plan("FREE"), 6))).toBe(
+    expect(() => assertBacktestHistoricalDepth(plan("FREE"), 30)).not.toThrow();
+    expect(reasonOf(() => assertBacktestHistoricalDepth(plan("FREE"), 31))).toBe(
       "ENTITLEMENT_BACKTEST_HISTORY_LIMIT",
     );
   });
 
   it("counts the run being submitted against the concurrency limit", () => {
-    expect(() => assertBacktestConcurrency(plan("PRO"), 1)).not.toThrow();
-    expect(reasonOf(() => assertBacktestConcurrency(plan("PRO"), 2))).toBe(
+    expect(() => assertBacktestConcurrency(plan("PRO_PLUS"), 1)).not.toThrow();
+    expect(reasonOf(() => assertBacktestConcurrency(plan("PRO_PLUS"), 2))).toBe(
+      "ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT",
+    );
+    expect(() => assertBacktestConcurrency(plan("PRO"), 0)).not.toThrow();
+    expect(reasonOf(() => assertBacktestConcurrency(plan("PRO"), 1))).toBe(
       "ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT",
     );
     expect(reasonOf(() => assertBacktestConcurrency(plan("FREE"), 1))).toBe(
@@ -335,10 +395,15 @@ describe("semantic assertions", () => {
   });
 
   it("counts the monitor being enabled against the active limit", () => {
-    expect(() => assertCanEnableMonitor(plan("STARTER"), 2)).not.toThrow();
-    expect(reasonOf(() => assertCanEnableMonitor(plan("STARTER"), 3))).toBe(
+    expect(() => assertCanEnableMonitor(plan("STARTER"), 4)).not.toThrow();
+    expect(reasonOf(() => assertCanEnableMonitor(plan("STARTER"), 5))).toBe(
       "ENTITLEMENT_MONITOR_LIMIT",
     );
+  });
+
+  it("never refuses enabling a monitor on an unlimited plan", () => {
+    expect(() => assertCanEnableMonitor(plan("PRO"), 10_000)).not.toThrow();
+    expect(() => assertCanEnableMonitor(plan("PRO_PLUS"), 10_000)).not.toThrow();
   });
 
   it("publishes every reason code the decision document names", () => {
@@ -351,6 +416,7 @@ describe("semantic assertions", () => {
       "ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT",
       "ENTITLEMENT_MONITOR_LIMIT",
       "ENTITLEMENT_RESOURCE_OVER_LIMIT",
+      "ENTITLEMENT_PREMIUM_CONTENT",
     ]);
   });
 });

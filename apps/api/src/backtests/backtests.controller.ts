@@ -27,8 +27,10 @@ import {
   Put,
   Query,
   StreamableFile,
+  UseFilters,
   UseGuards,
 } from "@nestjs/common";
+import { BACKTEST_NOT_CANCELLABLE_CODE } from "@intrinsic/contracts";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
@@ -43,8 +45,10 @@ import {
   BacktestNotShareableError,
   BacktestSharingService,
 } from "./backtest-sharing.service";
+import { BacktestQueueFullFilter } from "./backtest-queue-full.filter";
 import {
   BacktestConfigurationError,
+  BacktestNotCancellableError,
   BacktestRunNotFoundError,
   BacktestsService,
   BacktestUnavailableError,
@@ -71,6 +75,7 @@ export class BacktestsController {
   @RateLimit("backtest-execution")
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
+  @UseFilters(BacktestQueueFullFilter)
   async submit(
     @CurrentUser() user: AuthUser,
     @Body() body: unknown,
@@ -115,6 +120,21 @@ export class BacktestsController {
     @Param("runId") runId: string,
   ): Promise<BacktestRunDetailResponse> {
     return this.execute(() => this.backtests.getRun(user.id, runId));
+  }
+
+  /**
+   * Stops the caller's run. A queued run is cancelled at once; an executing one keeps its slot until
+   * its worker stops at the next checkpoint, which the response reports as `cancellation`.
+   * Idempotent; `409` once the run has completed or failed.
+   */
+  @RateLimit("mutation")
+  @Post(":runId/cancel")
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+  ): Promise<BacktestRunDetailResponse> {
+    return this.execute(() => this.backtests.cancelRun(user.id, runId));
   }
 
   @RateLimit("progress-poll")
@@ -258,6 +278,13 @@ export class BacktestsController {
       }
       if (error instanceof BacktestNotShareableError) {
         throw new ConflictException(error.message);
+      }
+      if (error instanceof BacktestNotCancellableError) {
+        throw new ConflictException({
+          statusCode: HttpStatus.CONFLICT,
+          message: error.message,
+          code: BACKTEST_NOT_CANCELLABLE_CODE,
+        });
       }
       if (error instanceof BacktestUnavailableError) {
         // Not the caller's fault, so not a 400: the run cannot be created under the methodology it

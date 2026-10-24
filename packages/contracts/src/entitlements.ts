@@ -1,10 +1,10 @@
 import type { UserRole } from "./index.js";
 
 /**
- * Entitlements V1 — the one central definition of what each commercial plan may do.
+ * Entitlements — the one central definition of what each commercial plan may do.
  *
- * `docs/decisions/entitlements-v1.md` is the product decision this file carries; it is not
- * restated or reinterpreted here. Everything below is pure: no I/O, no clock, no database and no
+ * `docs/decisions/entitlements-v2.md` is the product decision this file carries (it supersedes
+ * `entitlements-v1.md`, whose rationale it keeps); it is not restated or reinterpreted here. Everything below is pure: no I/O, no clock, no database and no
  * billing provider. That is what lets the API, the backtest worker, the Monitor worker and the
  * browser share one answer to "what is this identity allowed to do" instead of four.
  *
@@ -29,12 +29,13 @@ import type { UserRole } from "./index.js";
 // ---------------------------------------------------------------------------
 
 /**
- * The persisted commercial plans. Mirrors the `UserPlan` enum in the Prisma schema.
+ * The persisted commercial plans, cheapest first. Mirrors the `UserPlan` enum in the Prisma schema.
  *
  * `GUEST` is **not** here: it is not a persisted plan and does not require an anonymous `User`
  * row. `ADMIN` is not here either — it is a role, and a role is not something a biller may sell.
+ * `PRO_PLUS` is the product's "Pro+" (`docs/decisions/entitlements-v2.md` §1).
  */
-export const USER_PLANS = ["FREE", "STARTER", "PRO"] as const;
+export const USER_PLANS = ["FREE", "STARTER", "PRO", "PRO_PLUS"] as const;
 
 export type UserPlan = (typeof USER_PLANS)[number];
 
@@ -56,6 +57,7 @@ export const ENTITLEMENT_TIERS = [
   "FREE",
   "STARTER",
   "PRO",
+  "PRO_PLUS",
   "ADMIN",
 ] as const;
 
@@ -134,11 +136,20 @@ export type Entitlements = {
 
   /**
    * System-owned content. Built-in Lists and Strategies are not counted against a user's custom
-   * content and are readable by everyone, Guests included.
+   * content. Standard built-ins are readable by everyone, Guests included.
    */
   readonly builtInContent: {
     readonly canViewLists: boolean;
     readonly canViewStrategies: boolean;
+    /**
+     * **Premium** built-ins — premium predefined Lists, premium predefined Strategies and the
+     * point-in-time index universes (`docs/decisions/entitlements-v2.md` §6). A plan without this
+     * still sees that a premium item exists (its name, description and size, for discovery), but
+     * not its membership or rules, and may not backtest, monitor or duplicate it. Without the read
+     * gate the use gate would be decorative: every analytical primitive is open to every plan, so
+     * readable rules or members can simply be re-typed into a custom Strategy or List.
+     */
+    readonly canUsePremium: boolean;
   };
 
   readonly lists: {
@@ -166,10 +177,10 @@ export type Entitlements = {
   readonly backtests: {
     readonly canRunLive: boolean;
     /**
-     * Precomputed/static demo runs. V1 ships none, and a Guest may not view any Backtest
-     * configuration, run or result, demo included (`docs/decisions/entitlements-v1.md` section 4,
-     * DEC-007), so it is `false` for a Guest and the public response never advertises guest demo
-     * access.
+     * Precomputed demonstration backtests (`docs/decisions/entitlements-v2.md` §4): curated,
+     * already-completed runs of built-in content, published as read-only reports. `true` for every
+     * access state, Guests included. Reading one never starts, queues or re-computes anything, so
+     * it grants no execution at all — `canRunLive` is the execution capability.
      */
     readonly canViewDemo: boolean;
     readonly maxSymbols: EntitlementLimit;
@@ -181,7 +192,8 @@ export type Entitlements = {
      *
      * Measured by simultaneous membership because that is the universe a strategy chooses from on
      * any date: about 500 lines, although roughly twice as many distinct securities pass through the
-     * index over thirty years. `0` means the plan does not include index universes.
+     * index over thirty years. `0` means the plan does not include index universes — they are
+     * premium content, so this is `0` exactly where `builtInContent.canUsePremium` is `false`.
      */
     readonly maxIndexUniverseConstituents: EntitlementLimit;
     /** Maximum requested period length, in years. Execution only — see `stocks.maxHistoricalYears`. */
@@ -190,7 +202,12 @@ export type Entitlements = {
   };
 
   readonly monitors: {
-    /** How many enabled Monitors may be execution-eligible at once. */
+    /**
+     * How many enabled Monitors may be execution-eligible at once. `null` is the product's
+     * "Unlimited": no advertised numerical subscription cap. It is not unlimited infrastructure —
+     * an operational fair-use ceiling that is never a plan value may still apply
+     * (`docs/decisions/entitlements-v2.md` §7).
+     */
     readonly maxActive: EntitlementLimit;
   };
 
@@ -219,7 +236,11 @@ export const GUEST_ENTITLEMENTS: Entitlements = {
   tier: "GUEST",
   authenticated: false,
   stocks: { canSearch: true, canViewDetails: true, maxHistoricalYears: null },
-  builtInContent: { canViewLists: true, canViewStrategies: true },
+  builtInContent: {
+    canViewLists: true,
+    canViewStrategies: true,
+    canUsePremium: false,
+  },
   lists: { canCreateCustom: false, maxSaved: 0, maxSymbols: 0 },
   strategies: {
     canCreateCustom: false,
@@ -228,7 +249,8 @@ export const GUEST_ENTITLEMENTS: Entitlements = {
   },
   backtests: {
     canRunLive: false,
-    canViewDemo: false,
+    // Precomputed demonstration reports only: reading one executes nothing (entitlements-v2 §4).
+    canViewDemo: true,
     maxSymbols: 0,
     maxIndexUniverseConstituents: 0,
     maxHistoricalYears: 0,
@@ -238,25 +260,37 @@ export const GUEST_ENTITLEMENTS: Entitlements = {
   admin: { canAccessAdminSurfaces: false },
 };
 
+/**
+ * One plan's row of the matrix.
+ *
+ * `symbols` is one number on purpose: the decision applies a plan's symbol limit to every
+ * universe a user can execute — custom Lists, backtest universes, Monitor universes, duplicated
+ * Lists and predefined Lists (`docs/decisions/entitlements-v2.md` §5) — so a second number per
+ * surface could only ever be a way for them to disagree.
+ */
 function authenticatedEntitlements(input: {
   tier: EntitlementTier;
-  listSymbols: number;
-  backtestSymbols: number;
-  indexUniverseConstituents: number;
+  symbols: number;
+  premiumContent: boolean;
   backtestYears: number;
   concurrentRuns: number;
-  activeMonitors: number;
+  /** `null` is "Unlimited", the product value, not a missing one. */
+  activeMonitors: EntitlementLimit;
 }): Entitlements {
   return {
     tier: input.tier,
     authenticated: true,
     stocks: { canSearch: true, canViewDetails: true, maxHistoricalYears: null },
-    builtInContent: { canViewLists: true, canViewStrategies: true },
+    builtInContent: {
+      canViewLists: true,
+      canViewStrategies: true,
+      canUsePremium: input.premiumContent,
+    },
     lists: {
       canCreateCustom: true,
       // No commercial quota on the number of saved Lists, by explicit decision.
       maxSaved: null,
-      maxSymbols: input.listSymbols,
+      maxSymbols: input.symbols,
     },
     strategies: {
       canCreateCustom: true,
@@ -266,8 +300,10 @@ function authenticatedEntitlements(input: {
     backtests: {
       canRunLive: true,
       canViewDemo: true,
-      maxSymbols: input.backtestSymbols,
-      maxIndexUniverseConstituents: input.indexUniverseConstituents,
+      maxSymbols: input.symbols,
+      // Point-in-time universes are premium content: measured by simultaneous members against the
+      // plan's own symbol limit where the plan includes premium content, and excluded otherwise.
+      maxIndexUniverseConstituents: input.premiumContent ? input.symbols : 0,
       maxHistoricalYears: input.backtestYears,
       maxConcurrentRuns: input.concurrentRuns,
     },
@@ -285,32 +321,37 @@ function authenticatedEntitlements(input: {
 export const PLAN_ENTITLEMENTS: Readonly<Record<UserPlan, Entitlements>> = {
   FREE: authenticatedEntitlements({
     tier: "FREE",
-    listSymbols: 10,
-    backtestSymbols: 10,
-    indexUniverseConstituents: 0,
-    backtestYears: 5,
+    symbols: 10,
+    premiumContent: false,
+    backtestYears: 30,
     concurrentRuns: 1,
     activeMonitors: 1,
   }),
   STARTER: authenticatedEntitlements({
     tier: "STARTER",
-    listSymbols: 50,
-    backtestSymbols: 50,
-    indexUniverseConstituents: 0,
-    backtestYears: 15,
+    symbols: 50,
+    premiumContent: false,
+    backtestYears: 30,
     concurrentRuns: 1,
-    activeMonitors: 3,
+    activeMonitors: 5,
   }),
   PRO: authenticatedEntitlements({
     tier: "PRO",
-    listSymbols: 100,
-    backtestSymbols: 100,
-    // The S&P 500 holds 500 companies, at most about 507 lines with dual share classes; the owner
-    // extended Pro to the whole universe on 2026-10-17 (`docs/decisions/sp500-historical-pit-v1.md`).
-    indexUniverseConstituents: 550,
+    symbols: 750,
+    premiumContent: true,
     backtestYears: 30,
+    concurrentRuns: 1,
+    activeMonitors: null,
+  }),
+  PRO_PLUS: authenticatedEntitlements({
+    tier: "PRO_PLUS",
+    symbols: 1_000,
+    premiumContent: true,
+    backtestYears: 30,
+    // "Parallel Backtests": two of this user's runs may execute at once when the deployment has
+    // free capacity. Never priority, and never faster (entitlements-v2 §8).
     concurrentRuns: 2,
-    activeMonitors: 10,
+    activeMonitors: null,
   }),
 };
 
@@ -334,6 +375,8 @@ export const PLAN_ENTITLEMENTS: Readonly<Record<UserPlan, Entitlements>> = {
  */
 export const ADMIN_ENTITLEMENTS = {
   tier: "ADMIN" as const,
+  // An administrator maintains premium built-ins through the ordinary editors, so they read them.
+  builtInContent: { canUsePremium: true },
   lists: { maxSymbols: null },
   backtests: {
     maxSymbols: null,
@@ -349,6 +392,7 @@ function applyAdminEntitlements(base: Entitlements): Entitlements {
   return {
     ...base,
     tier: ADMIN_ENTITLEMENTS.tier,
+    builtInContent: { ...base.builtInContent, ...ADMIN_ENTITLEMENTS.builtInContent },
     lists: { ...base.lists, maxSymbols: ADMIN_ENTITLEMENTS.lists.maxSymbols },
     backtests: { ...base.backtests, ...ADMIN_ENTITLEMENTS.backtests },
     monitors: { ...base.monitors, ...ADMIN_ENTITLEMENTS.monitors },
@@ -409,6 +453,11 @@ export const ENTITLEMENT_REASON_CODES = [
    * *new* operation.
    */
   "ENTITLEMENT_RESOURCE_OVER_LIMIT",
+  /**
+   * The operation would read or use a premium built-in — a premium predefined List or Strategy, or
+   * a point-in-time index universe — and the plan does not include premium content.
+   */
+  "ENTITLEMENT_PREMIUM_CONTENT",
 ] as const;
 
 export type EntitlementReasonCode = (typeof ENTITLEMENT_REASON_CODES)[number];
@@ -522,6 +571,34 @@ export function assertListSymbolLimit(
   }
 }
 
+/** What kind of premium built-in an operation would read or use. Wording only. */
+export type PremiumContentKind = "LIST" | "STRATEGY" | "INDEX_UNIVERSE";
+
+const PREMIUM_CONTENT_NOUN: Readonly<Record<PremiumContentKind, string>> = {
+  LIST: "premium predefined lists",
+  STRATEGY: "premium predefined strategies",
+  INDEX_UNIVERSE: "premium point-in-time universes",
+};
+
+/**
+ * Premium built-in content (`docs/decisions/entitlements-v2.md` §6).
+ *
+ * Asked wherever a premium built-in would be read in full, executed, monitored or copied. A
+ * customer's own copy is never premium — but a copy can only be made by a plan that may use the
+ * original, so the gate cannot be routed around by duplicating first.
+ */
+export function assertCanUsePremiumContent(
+  entitlements: Entitlements,
+  kind: PremiumContentKind,
+): void {
+  if (!entitlements.builtInContent.canUsePremium) {
+    refuse(`Your plan does not include ${PREMIUM_CONTENT_NOUN[kind]}`, {
+      code: "ENTITLEMENT_PREMIUM_CONTENT",
+      tier: entitlements.tier,
+    });
+  }
+}
+
 export function assertCanRunLiveBacktest(entitlements: Entitlements): void {
   assertAuthenticated(entitlements);
   if (!entitlements.backtests.canRunLive) {
@@ -578,6 +655,9 @@ export function assertBacktestUniverseLimit(
     assertBacktestSymbolLimit(entitlements, usage.symbols);
     return;
   }
+  // A point-in-time universe is premium content first and a size second: a plan without premium
+  // content is told *that*, not that a 500-member index exceeds a limit of zero.
+  assertCanUsePremiumContent(entitlements, "INDEX_UNIVERSE");
   const limit = entitlements.backtests.maxIndexUniverseConstituents;
   if (!withinLimit(limit, usage.peakSimultaneousMembers)) {
     refuse(
@@ -771,6 +851,10 @@ export type MonitorEligibility = {
  *    scan. Holding the slot is deliberate: the slot is the commercial capacity the user has, and
  *    an over-limit List is a separate, correctable problem — letting the next Monitor take the
  *    slot instead would silently reorder which Monitors are active every time a List is edited.
+ *
+ * Premium content needs no rule here: a customer's Monitor may reference only the customer's own
+ * Strategy and List, and a customer's copy of a premium built-in is ordinary content
+ * (`docs/decisions/entitlements-v2.md` §6), so no customer Monitor can reach a premium built-in.
  *
  * Pass the caller's complete Monitor set. A partial set would silently move the slot boundary.
  */

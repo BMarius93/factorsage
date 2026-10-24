@@ -119,8 +119,8 @@ test.describe.serial("entitlements after a downgrade", () => {
       fixtureName("Downgraded Oversized"),
     );
 
-    // Rerunning it is a *new* operation and is validated against the plan the user has now. Depth
-    // is decidable from the period alone, so that is the limit it reports.
+    // Rerunning it is a *new* operation and is validated against the plan the user has now. Twenty
+    // years is inside every plan's thirty, so the list is what FREE refuses: past its ten stocks.
     const rerun = await submitBacktest(page, {
       strategyName: "DOWNGRADED_USER Strategy",
       listName: "Downgraded Oversized",
@@ -128,7 +128,8 @@ test.describe.serial("entitlements after a downgrade", () => {
       endDate: today(),
     });
     expect(rerun.accepted).toBe(false);
-    expect(rerun.message).toContain("5");
+    expect(rerun.message).toContain("10");
+    expect(rerun.message?.toLowerCase()).toContain("stocks");
   });
 
   test("keeps every monitor, its intent, and shows which are not scanning", async ({

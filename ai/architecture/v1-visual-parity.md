@@ -47,8 +47,9 @@ There are four page types:
 
 Billing is a **product page of the first type's family**, not a marketing surface. `/billing` is
 reached only from an authenticated session, and a returning customer opens it to see what they are on
-and what it costs — so it uses the ordinary `PageHeader` + section composition, with three plan cards
-(Free, Starter, Pro) and one billing-cadence toggle as its only feature-owned composition.
+and what it costs — so it uses the ordinary `PageHeader` + section composition, with four plan cards
+(Free, Starter, Pro, Pro+) — and a billing-cadence toggle only while the catalog sells more than one
+cadence — as its only feature-owned composition.
 
 The public `/pricing` page (DEC-001, PRICING-001) is the same family, not a marketing surface: an
 ordinary `PageHeader`, the **same** plan comparison component `/billing` renders (`PlanCatalog`),
@@ -373,9 +374,13 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 - Billing is an authenticated product page and composes like one: `PageHeader` with the plan badge
   and the single `Manage billing` action, then the plan comparison, then a `SectionCard` carrying the
   subscription's own facts. No hero, no promotional copy, no giant empty vertical regions.
-- **Three plan cards — Free, Starter, Pro — and never one card per price.** Monthly and yearly are a
-  property of a plan, so a segmented cadence control re-prices the same three cards in place. Free is
-  a first-class card, not an account state.
+- **Four plan cards — Free, Starter, Pro, Pro+ — and never one card per price.** A cadence is a
+  property of a plan: a segmented Monthly/Yearly control re-prices the same four cards in place (it
+  renders while the catalog sells more than one cadence, as it does). A yearly card's large figure is
+  the effective monthly cost, with the exact annual amount "billed upfront" directly under it and the
+  saving under that, in the brand accent; the Yearly option carries the same saving. Pro carries
+  the one "Best Value" emphasis; Pro+ is "Advanced Research" and never emphasized over it. Free is a
+  first-class card, not an account state.
 - Plan cards wear the product's own page-level surface, composed from `SectionCard`'s `.card` rather
   than restyled, and their buttons align on one baseline however the feature text wraps.
 - Capacities on the cards are **derived** from `PLAN_ENTITLEMENTS` and amounts from

@@ -61,6 +61,8 @@ const PRICE_IDS: Record<BillingPriceKey, string> = {
   STARTER_YEARLY: "price_fixture_starter_yearly",
   PRO_MONTHLY: "price_fixture_pro_monthly",
   PRO_YEARLY: "price_fixture_pro_yearly",
+  PRO_PLUS_MONTHLY: "price_fixture_pro_plus_monthly",
+  PRO_PLUS_YEARLY: "price_fixture_pro_plus_yearly",
 };
 
 const CONFIG: StripeBillingConfig = {
@@ -389,7 +391,7 @@ describe("billing QA persona tooling", () => {
       // subscription still mirrored — on the plan it was — so the page can say why access ended.
       expect(result.local.plan).toBe("FREE");
       expect(result.local.mirror?.status).toBe("CANCELED");
-      expect(result.local.mirror?.plan).toBe("PRO");
+      expect(result.local.mirror?.plan).toBe("PRO_PLUS");
       expect(result.local.mirror?.planReason).toBe("SUBSCRIPTION_TERMINATED");
       expect(result.local.mirror?.canceledAt).not.toBeNull();
     });

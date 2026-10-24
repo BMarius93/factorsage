@@ -25,10 +25,11 @@ import { toMirroredStatus } from "../billing/stripe-gateway";
  * plan decision does not produce.
  */
 describe("billing QA persona registry", () => {
-  it("declares exactly the five lifecycle personas", () => {
+  it("declares exactly the six lifecycle personas", () => {
     expect([...BILLING_PERSONA_NAMES]).toEqual([
       "BILLING_STARTER_ACTIVE",
       "BILLING_PRO_ACTIVE",
+      "BILLING_PRO_PLUS_ACTIVE",
       "BILLING_PRO_CANCELING",
       "BILLING_STARTER_PAST_DUE",
       "BILLING_CANCELED",
@@ -72,6 +73,17 @@ describe("billing QA persona registry", () => {
         userPlan: "PRO",
       },
       {
+        // The highest tier, granted only because Stripe reports its price active.
+        name: "BILLING_PRO_PLUS_ACTIVE",
+        priceKey: "PRO_PLUS_YEARLY",
+        lifecycle: "ACTIVE",
+        stripeStatus: "active",
+        cancellationScheduled: false,
+        mirrorStatus: "ACTIVE",
+        planReason: "SUBSCRIPTION_ACTIVE",
+        userPlan: "PRO_PLUS",
+      },
+      {
         // Scheduled cancellation: the plan does not move until the period ends (section 10).
         name: "BILLING_PRO_CANCELING",
         priceKey: "PRO_YEARLY",
@@ -96,7 +108,7 @@ describe("billing QA persona registry", () => {
       {
         // Actually canceled: FREE, whatever was subscribed (section 10).
         name: "BILLING_CANCELED",
-        priceKey: "PRO_MONTHLY",
+        priceKey: "PRO_PLUS_MONTHLY",
         lifecycle: "CANCELED",
         stripeStatus: "canceled",
         cancellationScheduled: false,
@@ -107,7 +119,7 @@ describe("billing QA persona registry", () => {
     ]);
   });
 
-  it("subscribes every persona to a catalog price, and between them to all four", () => {
+  it("subscribes every persona to a catalog price, and between them to all six, once each", () => {
     for (const persona of BILLING_PERSONA_LIST) {
       const entry = BILLING_CATALOG[persona.priceKey];
       expect(entry, persona.name).toBeDefined();
@@ -118,6 +130,10 @@ describe("billing QA persona registry", () => {
     expect(
       new Set(BILLING_PERSONA_LIST.map((persona) => persona.priceKey)),
     ).toEqual(new Set(BILLING_PRICE_KEYS));
+    // One price per persona: every monthly and every yearly price is billed by a real fixture.
+    expect(BILLING_PERSONA_LIST.map((persona) => persona.priceKey).sort()).toEqual(
+      [...BILLING_PRICE_KEYS].sort(),
+    );
   });
 
   it("declares only outcomes the product's one plan decision produces", () => {

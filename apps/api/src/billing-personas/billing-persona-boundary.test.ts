@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
  *   else, so the tooling may not write `BillingSubscription` or `User.plan`, nor call the plan
  *   write seam itself;
  * - `stripe.gateway.ts` stays the only file that imports the Stripe SDK (`AGENTS.md` invariant 18);
- * - nothing can modify or delete the shared four-price catalog, and the only thing the fixture
+ * - nothing can modify or delete the shared price catalog, and the only thing the fixture
  *   gateway can delete is a Test Clock;
  * - the entitlement personas stay independent of Stripe.
  */
@@ -168,6 +168,8 @@ describe("billing persona tooling boundaries", () => {
       "createSubscription",
       "setSubscriptionPaymentMethod",
       "scheduleCancellationAtPeriodEnd",
+      // Read-only: the sandbox suites read back what a yearly subscription was charged.
+      "listSubscriptionInvoices",
     ]);
   });
 

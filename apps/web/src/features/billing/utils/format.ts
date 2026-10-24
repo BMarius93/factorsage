@@ -21,6 +21,7 @@ export const PLAN_LABEL: Readonly<Record<UserPlan, string>> = {
   FREE: "Free",
   STARTER: "Starter",
   PRO: "Pro",
+  PRO_PLUS: "Pro+",
 };
 
 export const INTERVAL_LABEL: Readonly<Record<BillingInterval, string>> = {

@@ -25,6 +25,7 @@ import {
   type StockSectorAssignmentResponse,
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
+import { getMonitorFairUseConfig } from "@intrinsic/config";
 import { requestMonitorEvaluation, type Prisma } from "@intrinsic/database";
 import { monitorStrategyLevels } from "@intrinsic/strategy";
 import {
@@ -98,8 +99,44 @@ export class MonitorRequestError extends Error {
   }
 }
 
+/**
+ * Switching on one more Monitor would pass the deployment's operational fair-use ceiling. Not an
+ * entitlement — the plan says unlimited — so it is a `409` with its own code, never a `403`.
+ */
+export class MonitorFairUseLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(
+      `You have ${limit} active monitors, the fair-use limit for one account. Switch one off, or contact support if you need more.`,
+    );
+    this.name = "MonitorFairUseLimitError";
+  }
+}
+
 // Re-exported for the modules that read it from here.
 export { visibleMonitorWhere };
+
+/**
+ * The operational fair-use ceiling, decided in the same transaction and under the same per-user
+ * entitlement lock the entitlement check just took, so it cannot be raced either. Only enabled
+ * customer Monitors count; a disabled one, and every built-in, cost nothing.
+ */
+async function assertMonitorFairUse(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  excludeMonitorId?: string,
+): Promise<void> {
+  const { maxEnabledPerUser } = getMonitorFairUseConfig();
+  const enabled = await tx.monitor.count({
+    where: {
+      userId,
+      enabled: true,
+      ...(excludeMonitorId ? { id: { not: excludeMonitorId } } : {}),
+    },
+  });
+  if (enabled + 1 > maxEnabledPerUser) {
+    throw new MonitorFairUseLimitError(maxEnabledPerUser);
+  }
+}
 
 /** How many Signals a detail response carries. Newest first; the collection page pages later. */
 const SIGNAL_PAGE_SIZE = 100;
@@ -342,6 +379,7 @@ export class MonitorsService {
     const row = await this.prisma.$transaction(async (tx) => {
       if (input.enabled) {
         await this.entitlements.assertCanEnableMonitor(tx, userId);
+        await assertMonitorFairUse(tx, userId);
         // Running from now: its window is caught up by the next pass, not the next interval.
         await requestMonitorEvaluation(tx);
       }
@@ -1013,6 +1051,7 @@ export class MonitorsService {
         await this.entitlements.assertCanEnableMonitor(tx, userId, {
           excludeMonitorId: monitorId,
         });
+        await assertMonitorFairUse(tx, userId, monitorId);
       }
       // Switched on: its missing sessions are caught up by the next pass, not the next interval.
       // Switching a customer's own Monitor off can hand its plan slot to the next one, which then
@@ -1124,9 +1163,12 @@ export class MonitorsService {
   ): Promise<void> {
     const userId = user.id;
     const system = ownership === "SYSTEM";
-    // A customer's Monitor watches the customer's own content; a built-in watches built-ins only.
+    // A customer's Monitor watches the customer's own content; a built-in watches built-ins only —
+    // and only standard ones. A built-in Monitor's Signals are public on every Dashboard, so one
+    // bound to a premium List or Strategy would publish what premium content withholds
+    // (`docs/decisions/entitlements-v2.md` §6); a premium reference reads as missing here.
     const referenceOwner = system
-      ? { ownership: "SYSTEM" as const }
+      ? { ownership: "SYSTEM" as const, premium: false }
       : { userId };
     const now = new Date();
     const outcome = await this.prisma.$transaction(async (tx) => {
@@ -1137,6 +1179,7 @@ export class MonitorsService {
         await this.entitlements.assertCanEnableMonitor(tx, userId, {
           excludeMonitorId: monitorId,
         });
+        await assertMonitorFairUse(tx, userId, monitorId);
       }
       // The Monitor row is locked first, before anything else in this transaction touches state or
       // Signals. A cycle committing a transition locks the same row (`FOR SHARE`) before its own

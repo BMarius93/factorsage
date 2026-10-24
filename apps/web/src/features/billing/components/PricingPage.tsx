@@ -21,6 +21,7 @@ import {
   planCardState,
   type PlanCardState,
 } from "../utils/plan-actions";
+import { displayedInterval } from "../utils/plan-presentation";
 import { SubscriptionDisclosure } from "../../legal/components/SubscriptionDisclosure";
 import { BillingUnavailableNote, PlanCatalog } from "./PlanCatalog";
 import billingStyles from "./BillingPage.module.css";
@@ -87,7 +88,7 @@ export function PricingPage() {
           />
         ) : (
           <PlanCatalog
-            interval={chosenInterval ?? "MONTH"}
+            interval={displayedInterval(chosenInterval)}
             onIntervalChange={setChosenInterval}
             cardState={guestPlanCardState}
             pendingPlan={null}
@@ -119,9 +120,11 @@ function SignedInPlans({
 }) {
   const { state, reload } = useBillingStatus();
   const billing = state.status === "ready" ? state.billing : null;
-  // Until the viewer picks one, show what they are already billed for, as `/billing` does.
-  const interval: BillingInterval =
-    chosenInterval ?? billing?.subscription?.interval ?? "MONTH";
+  // Until the viewer picks one, show what they are already billed for, as `/billing` does — as long
+  // as the catalog still sells that cadence.
+  const interval: BillingInterval = displayedInterval(
+    chosenInterval ?? billing?.subscription?.interval,
+  );
   const { pendingPlan, busy, failure, act } = usePlanActions({
     onChanged: reload,
   });
@@ -209,21 +212,29 @@ function BillingFacts() {
           hosted checkout, so FactorSage never sees your card details.
         </li>
         <li>
-          Upgrades take effect immediately. Downgrades, a switch to monthly
-          billing and cancellation take effect at the end of the period you have
-          already paid for.
+          Upgrades take effect immediately. Downgrades and cancellation take
+          effect at the end of the period you have already paid for. Moving
+          from monthly to yearly billing takes effect immediately; moving from
+          yearly to monthly takes effect at the end of the paid year.
         </li>
         <li>
           Moving to a smaller plan never deletes anything you have saved: your
-          lists, strategies, backtests and monitors stay readable.
+          lists, strategies, backtests and monitors stay readable. Lists larger
+          than the new plan allows stay saved; they run again once they fit.
         </li>
         <li>
-          A subscription renews automatically at the price shown for its plan
-          until you cancel the renewal. The amount, the currency, the billing
-          interval and the total payable including any applicable taxes are
-          shown on Stripe&apos;s checkout page before you pay, and an annual
-          plan is charged as the annual amount shown on its card — not twelve
-          monthly ones.
+          Every backtest, on every plan, runs on the same shared capacity in
+          one fair queue. A plan changes how many of your backtests may run at
+          once — never their speed or their place in line.
+        </li>
+        <li>
+          A yearly plan is billed in full, upfront, for the whole year; its
+          monthly figure is that annual amount divided by twelve, for
+          comparison. A subscription renews automatically at the end of each
+          billing period — every month, or every year — at the price shown
+          for its plan until you cancel the renewal. The amount, the currency,
+          the billing interval and the total payable including any applicable
+          taxes are shown on Stripe&apos;s checkout page before you pay.
         </li>
       </ul>
     </SectionCard>

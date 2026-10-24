@@ -258,8 +258,8 @@ database that is not the local test one:
 STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas
 ```
 
-It takes about a minute, leaves the five personas seeded in the Stripe sandbox and the test
-database, and creates and removes a sixth, throwaway fixture to prove the cleanup.
+It takes about a minute, leaves the six personas seeded in the Stripe sandbox and the test
+database, and creates and removes a seventh, throwaway fixture to prove the cleanup.
 
 Everything else about the tooling is offline and runs inside the normal gate:
 `apps/api/src/billing-personas/*.test.ts` use the fake gateway, and
@@ -274,7 +274,7 @@ is never part of `pnpm test:e2e`.
 Operator commands are not tests and are never part of the gate:
 
 ```bash
-pnpm billing:verify-catalog          # the four prices, against the configured Stripe environment
+pnpm billing:verify-catalog          # the six prices (monthly and yearly), against the configured Stripe environment
 pnpm billing:reconcile -- --user x   # rebuild one user's billing state from Stripe
 pnpm qa:billing:seed                 # the billing QA personas, in Stripe test mode + reconciliation
 pnpm qa:billing:status               # inspect them
@@ -282,8 +282,8 @@ pnpm qa:billing:cleanup              # remove only the Stripe fixtures that tool
 ```
 
 `pnpm billing:verify-catalog` is worth running whenever billing configuration changes: it is the only
-check that would catch a `STRIPE_PRICE_PRO_MONTHLY` pointing at the $9 Starter price, because runtime
-deliberately never reads an amount.
+check that would catch a `STRIPE_PRICE_PRO_MONTHLY` pointing at the $19 Starter price — runtime
+deliberately never reads an amount — or a Pro+ price created on the Pro product.
 
 Playwright billing specs (`apps/web/e2e/billing/`) need no Stripe either — they assert FactorSage's own
 surface and skip the checkout-initiation cases when billing is unconfigured:

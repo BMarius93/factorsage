@@ -9,6 +9,7 @@ import {
   type StripeFixtureClock,
   type StripeFixtureCustomer,
   type StripeFixtureGateway,
+  type StripeFixtureInvoice,
   type StripeFixturePaymentBehavior,
   type StripeFixtureSubscription,
 } from "./stripe-fixture-gateway";
@@ -770,7 +771,7 @@ const FIXTURE_PAYMENT_METHOD_TOKENS: Readonly<
 export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
   private readonly stripe: Stripe;
 
-  /** The four configured catalog prices. A subscription on anything else is refused. */
+  /** The configured catalog prices. A subscription on anything else is refused. */
   private readonly catalogPriceIds: ReadonlySet<string>;
 
   constructor(
@@ -783,6 +784,38 @@ export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
       timeout: config.timeoutMs,
       maxNetworkRetries: config.maxNetworkRetries,
       appInfo: { name: "FactorSage QA fixtures", version: "1.0.0" },
+    });
+  }
+
+  async listSubscriptionInvoices(
+    subscriptionId: string,
+  ): Promise<readonly StripeFixtureInvoice[]> {
+    return this.call("invoices.list", async () => {
+      const invoices: StripeFixtureInvoice[] = [];
+      for await (const invoice of this.stripe.invoices.list({
+        subscription: subscriptionId,
+        limit: 100,
+      })) {
+        invoices.push({
+          id: invoice.id,
+          status: invoice.status,
+          billingReason: invoice.billing_reason,
+          currency: invoice.currency,
+          amountDue: invoice.amount_due,
+          amountPaid: invoice.amount_paid,
+          created: new Date(invoice.created * 1000),
+          lines: invoice.lines.data.map((line) => {
+            const price = line.pricing?.price_details?.price;
+            return {
+              priceId: typeof price === "string" ? price : (price?.id ?? null),
+              amount: line.amount,
+              periodStart: new Date(line.period.start * 1000),
+              periodEnd: new Date(line.period.end * 1000),
+            };
+          }),
+        });
+      }
+      return invoices;
     });
   }
 
@@ -965,7 +998,7 @@ export class StripeTestModeFixtureGateway implements StripeFixtureGateway {
   }): Promise<StripeFixtureSubscription> {
     if (!this.catalogPriceIds.has(input.priceId)) {
       throw new StripeFixtureError(
-        "Refusing to create a fixture subscription on a price that is not one of the four " +
+        "Refusing to create a fixture subscription on a price that is not one of the " +
           "configured FactorSage catalog prices.",
       );
     }

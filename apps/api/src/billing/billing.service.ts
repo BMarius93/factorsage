@@ -2,7 +2,6 @@ import type { StripeBillingConfig } from "@intrinsic/config";
 import {
   BILLING_CATALOG_ENTRIES,
   BillingError,
-  billingPriceKeyFor,
   classifyBillingTransition,
   occupiesPaidSlot,
   type AuthUser,
@@ -114,7 +113,12 @@ export class BillingService {
     return {
       plan,
       billingEnabled: this.configured,
-      subscription: subscription ? toSubscriptionView(subscription) : null,
+      subscription: subscription
+        ? toSubscriptionView(
+            subscription,
+            this.catalog?.resolvePriceId(subscription.stripePriceId)?.legacy === true,
+          )
+        : null,
       canStartCheckout: this.configured && !holdsSlot,
       canOpenPortal: this.configured && account?.stripeCustomerId !== null,
       canChangePlan:
@@ -371,7 +375,8 @@ export class BillingService {
         );
       }
 
-      const currentKey = billingPriceKeyFor(current.plan, current.interval);
+      // A legacy price is classified as its plan's current price (`BillingCatalog`).
+      const currentKey = current.key;
       const transition = classifyBillingTransition(currentKey, input.priceKey);
 
       if (transition.effect === "UNCHANGED") {
@@ -400,6 +405,7 @@ export class BillingService {
         event: "billing.change.requested",
         actorUserId: input.user.id,
         from: currentKey,
+        fromLegacyPrice: current.legacy,
         to: input.priceKey,
         kind: transition.kind,
         effect: transition.effect,
@@ -626,10 +632,16 @@ export class BillingService {
 /** A configured price as its logical key for logs, or a marker for one outside the catalog. */
 function describePrice(catalog: BillingCatalog, priceId: string): string {
   const price = catalog.resolvePriceId(priceId);
-  return price ? billingPriceKeyFor(price.plan, price.interval) : "UNKNOWN_PRICE";
+  if (!price) {
+    return "UNKNOWN_PRICE";
+  }
+  return price.legacy ? `LEGACY_${price.plan}_${price.interval}` : price.key;
 }
 
-/** The mirror row, projected onto the UI-safe view. No Stripe ids cross this boundary. */
+/**
+ * The mirror row, projected onto the UI-safe view. No Stripe ids cross this boundary: `legacyPrice`
+ * says only *that* the billed price is a retired one, resolved through the configured allowlist.
+ */
 function toSubscriptionView(row: {
   plan: UserPlan | null;
   billingInterval: "MONTH" | "YEAR" | null;
@@ -640,7 +652,7 @@ function toSubscriptionView(row: {
   pendingPlan: UserPlan | null;
   pendingInterval: "MONTH" | "YEAR" | null;
   pendingEffectiveAt: Date | null;
-}): BillingSubscriptionView {
+}, legacyPrice: boolean): BillingSubscriptionView {
   const pendingChange: BillingPendingChange | null =
     row.pendingPlan && row.pendingPlan !== "FREE" && row.pendingInterval
       ? {
@@ -653,6 +665,7 @@ function toSubscriptionView(row: {
   return {
     plan: row.plan && row.plan !== "FREE" ? row.plan : null,
     interval: row.billingInterval,
+    legacyPrice,
     status: row.status,
     currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: row.cancelAtPeriodEnd,

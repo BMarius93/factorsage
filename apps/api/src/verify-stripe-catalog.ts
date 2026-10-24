@@ -12,8 +12,8 @@ import {
  * `pnpm billing:verify-catalog` — proves the configured Stripe prices are the ones this product sells.
  *
  * The allowlist maps a logical key to a Price ID and trusts nothing else about it, which is correct
- * for runtime but leaves one gap: nothing stops `STRIPE_PRICE_PRO_MONTHLY` from pointing at the $9
- * Starter price. Runtime would then sell Pro entitlements for nine dollars and never complain,
+ * for runtime but leaves one gap: nothing stops `STRIPE_PRICE_PRO_MONTHLY` from pointing at the $19
+ * Starter price. Runtime would then sell Pro entitlements for nineteen dollars and never complain,
  * because by design it never reads the amount. `docs/decisions/stripe-billing-v1.md` section 2 asks
  * for exactly this check, loudly, at configuration time rather than at revenue time.
  *
@@ -23,9 +23,11 @@ import {
  * - **recurring**, at the configured interval, with `interval_count = 1`;
  * - **USD**;
  * - **licensed**, not metered — V1 has no usage-based billing;
- * - priced at exactly $9 / $99 / $29 / $299;
+ * - priced at exactly its catalog amount: $19 / $169, $49 / $439, $199 / $1,790 a month / a year
+ *   (`BILLING_CATALOG`), so a V1 $99 or $299 year left in a yearly variable is reported;
  * - attached to an **active** product, and to the *same* product as its sibling interval, so the
- *   Starter monthly and yearly prices really are two cadences of one Starter product;
+ *   Starter monthly and yearly prices really are two cadences of one Starter product — and each
+ *   plan to a product of its own;
  * - each a distinct price, with no two logical keys sharing one.
  *
  * Run it after configuring a sandbox, before every production deployment, and after any Dashboard
@@ -41,7 +43,9 @@ async function main(): Promise<void> {
 
   try {
     console.log(`Stripe environment: ${describeStripeMode(context.config)}`);
-    console.log("Verifying the four V1 recurring prices.\n");
+    console.log(
+      `Verifying the ${BILLING_PRICE_KEYS.length} recurring catalog prices.\n`,
+    );
 
     // The rules themselves live in `billing/catalog-verification.ts`, shared with the billing QA
     // persona tooling, which refuses to create a subscription on a catalog this would reject.
@@ -62,7 +66,9 @@ async function main(): Promise<void> {
     }
 
     if (findings.length === 0) {
-      console.log("\nAll four prices match the V1 catalog.");
+      console.log(
+        `\nAll ${BILLING_PRICE_KEYS.length} prices match the catalog.`,
+      );
       return;
     }
 

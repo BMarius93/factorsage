@@ -37,6 +37,7 @@ import type {
 export const BILLING_PERSONA_NAMES = [
   "BILLING_STARTER_ACTIVE",
   "BILLING_PRO_ACTIVE",
+  "BILLING_PRO_PLUS_ACTIVE",
   "BILLING_PRO_CANCELING",
   "BILLING_STARTER_PAST_DUE",
   "BILLING_CANCELED",
@@ -142,10 +143,10 @@ export const BILLING_PERSONAS: Readonly<
     },
     storageState: billingPersonaStorageState("starter-active"),
     purpose:
-      "The baseline: a paid Starter subscription with nothing scheduled. It is the control for " +
-      "BILLING_STARTER_PAST_DUE — same plan, different Stripe status, same entitlements — and it " +
-      "bills the yearly Starter price, so the five personas between them cover all four " +
-      "configured catalog prices.",
+      "The baseline: a paid Starter subscription with nothing scheduled, billed yearly. It is the " +
+      "control for BILLING_STARTER_PAST_DUE — same plan, different Stripe status and cadence, " +
+      "same entitlements. The six personas between them bill each of the six configured catalog " +
+      "prices exactly once.",
   },
   BILLING_PRO_ACTIVE: {
     name: "BILLING_PRO_ACTIVE",
@@ -166,6 +167,27 @@ export const BILLING_PERSONAS: Readonly<
     storageState: billingPersonaStorageState("pro-active"),
     purpose:
       "A paying Pro customer. Unlike PRO_USER, whose plan is seeded, this account is PRO because " +
+      "Stripe says so and reconciliation agreed.",
+  },
+  BILLING_PRO_PLUS_ACTIVE: {
+    name: "BILLING_PRO_PLUS_ACTIVE",
+    slug: "pro-plus-active",
+    email: billingPersonaEmail("pro-plus-active"),
+    priceKey: "PRO_PLUS_YEARLY",
+    subscribedPlan: "PRO_PLUS",
+    interval: "YEAR",
+    lifecycle: "ACTIVE",
+    expected: {
+      stripeStatus: "active",
+      cancellationScheduled: false,
+      mirrorStatus: "ACTIVE",
+      planReason: "SUBSCRIPTION_ACTIVE",
+      userPlan: "PRO_PLUS",
+      holdsPaidSlot: true,
+    },
+    storageState: billingPersonaStorageState("pro-plus-active"),
+    purpose:
+      "A paying Pro+ customer on the yearly price, the most expensive one: PRO_PLUS because " +
       "Stripe says so and reconciliation agreed.",
   },
   BILLING_PRO_CANCELING: {
@@ -217,8 +239,8 @@ export const BILLING_PERSONAS: Readonly<
     name: "BILLING_CANCELED",
     slug: "canceled",
     email: billingPersonaEmail("canceled"),
-    priceKey: "PRO_MONTHLY",
-    subscribedPlan: "PRO",
+    priceKey: "PRO_PLUS_MONTHLY",
+    subscribedPlan: "PRO_PLUS",
     interval: "MONTH",
     lifecycle: "CANCELED",
     expected: {
@@ -232,7 +254,7 @@ export const BILLING_PERSONAS: Readonly<
     },
     storageState: billingPersonaStorageState("canceled"),
     purpose:
-      "A former Pro customer whose subscription ran to the end of its paid period and ended. " +
+      "A former Pro+ customer whose subscription ran to the end of its paid period and ended. " +
       "FREE, with the ended subscription still mirrored so the page can say why — and free to " +
       "subscribe again.",
   },

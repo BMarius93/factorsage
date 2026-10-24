@@ -5,6 +5,7 @@ import type {
   MonitorSignalPageResponse,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
+import { MONITOR_FAIR_USE_LIMIT_CODE } from "@intrinsic/contracts";
 import {
   BadRequestException,
   ConflictException,
@@ -38,6 +39,7 @@ import {
 } from "./monitor-signal-table";
 import {
   MonitorNotFoundError,
+  MonitorFairUseLimitError,
   MonitorReferenceNotFoundError,
   MonitorRequestError,
   MonitorsService,
@@ -169,6 +171,15 @@ export class MonitorsController {
       }
       if (error instanceof SignalTableChangedError) {
         throw new ConflictException(error.message);
+      }
+      if (error instanceof MonitorFairUseLimitError) {
+        // Capacity protection, not a plan limit: a 409 with its own code, never an entitlement 403.
+        throw new ConflictException({
+          statusCode: HttpStatus.CONFLICT,
+          message: error.message,
+          code: MONITOR_FAIR_USE_LIMIT_CODE,
+          limit: error.limit,
+        });
       }
       throw error;
     }

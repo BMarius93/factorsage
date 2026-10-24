@@ -155,29 +155,20 @@ export function monitorCard(page: Page, name: string): Locator {
     .filter({ hasText: fixtureName(name) });
 }
 
+type BacktestFormInput = {
+  /** The persona's seeded fixture strategy, without the reserved prefix. */
+  readonly strategyName: string;
+  readonly listName: string;
+  readonly startDate: string;
+  readonly endDate: string;
+};
+
 /** Fills the New Backtest form and submits, reporting what the page answered. */
 export async function submitBacktest(
   page: Page,
-  input: {
-    /** The persona's seeded fixture strategy, without the reserved prefix. */
-    readonly strategyName: string;
-    readonly listName: string;
-    readonly startDate: string;
-    readonly endDate: string;
-  },
+  input: BacktestFormInput,
 ): Promise<{ accepted: boolean; message: string | null }> {
-  await page.goto("/backtests/new");
-  const listSelect = page.getByTestId("backtest-list");
-  await expect(listSelect).toBeEnabled({ timeout: 30_000 });
-  // Every field the form validates itself must be filled, or the client refuses before the API is
-  // ever asked — and a spec about a plan limit would be asserting on its own omission.
-  await page
-    .getByTestId("backtest-strategy")
-    .selectOption({ label: fixtureName(input.strategyName) });
-  await listSelect.selectOption({ label: fixtureName(input.listName) });
-  await page.getByTestId("backtest-start").fill(input.startDate);
-  await page.getByTestId("backtest-end").fill(input.endDate);
-  await page.getByTestId("submit-backtest").click();
+  await fillAndSubmitBacktestForm(page, input);
 
   const error = page.getByTestId("backtest-submit-error");
   await expect
@@ -192,6 +183,39 @@ export async function submitBacktest(
   return (await error.count()) > 0
     ? { accepted: false, message: (await error.innerText()).trim() }
     : { accepted: true, message: null };
+}
+
+/**
+ * Submits a period the form itself refuses — longer than the engine's thirty years, which since
+ * entitlements V2 is also every plan's — and returns the form's message. Nothing reaches the API.
+ */
+export async function submitBacktestRefusedByForm(
+  page: Page,
+  input: BacktestFormInput,
+): Promise<string> {
+  await fillAndSubmitBacktestForm(page, input);
+  const fieldError = page.getByText(/cannot be longer than \d+ years/);
+  await expect(fieldError).toBeVisible({ timeout: 10_000 });
+  await expect(page).toHaveURL(/\/backtests\/new$/);
+  return (await fieldError.innerText()).trim();
+}
+
+async function fillAndSubmitBacktestForm(
+  page: Page,
+  input: BacktestFormInput,
+): Promise<void> {
+  await page.goto("/backtests/new");
+  const listSelect = page.getByTestId("backtest-list");
+  await expect(listSelect).toBeEnabled({ timeout: 30_000 });
+  // Every field the form validates itself must be filled, or the client refuses before the API is
+  // ever asked — and a spec about a plan limit would be asserting on its own omission.
+  await page
+    .getByTestId("backtest-strategy")
+    .selectOption({ label: fixtureName(input.strategyName) });
+  await listSelect.selectOption({ label: fixtureName(input.listName) });
+  await page.getByTestId("backtest-start").fill(input.startDate);
+  await page.getByTestId("backtest-end").fill(input.endDate);
+  await page.getByTestId("submit-backtest").click();
 }
 
 /** `years` before `date`, with the product's own 29-February clamp. */

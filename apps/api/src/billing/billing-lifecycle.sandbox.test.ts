@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getStripeBillingConfig } from "@intrinsic/config";
-import type { AuthUser } from "@intrinsic/contracts";
+import {
+  getStripeBillingConfig,
+  type StripeBillingConfig,
+} from "@intrinsic/config";
+import {
+  BILLING_CATALOG,
+  findBillingPriceKey,
+  type AuthUser,
+  type BillingPriceKey,
+} from "@intrinsic/contracts";
 import { createLogger } from "@intrinsic/observability";
 import {
   BILLING_PERSONAS,
@@ -63,6 +71,12 @@ const KEEP_FIXTURES =
 
 const STRIPE_TIMEOUT_MS = 15 * 60_000;
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const YEARLY_KEYS = [
+  "STARTER_YEARLY",
+  "PRO_YEARLY",
+  "PRO_PLUS_YEARLY",
+] as const satisfies readonly BillingPriceKey[];
 const EVIDENCE_DIR = join(__dirname, "../../../../.debug/billing-sandbox");
 
 type Observation = Record<string, unknown> & { step: string };
@@ -76,10 +90,11 @@ describe.skipIf(!ENABLED)(
     let billing: BillingService;
     let reconciliation: BillingReconciliationService;
     let tooling: BillingPersonaTooling;
+    let config: StripeBillingConfig;
     const scratch: BillingPersona[] = [];
 
     beforeAll(async () => {
-      const config = assertBillingPersonaStripeConfig(getStripeBillingConfig());
+      config = assertBillingPersonaStripeConfig(getStripeBillingConfig());
       resolveBillingPersonaDatabase("test");
       const moduleRef = await Test.createTestingModule({
         imports: [
@@ -143,6 +158,24 @@ describe.skipIf(!ENABLED)(
       };
       scratch.push(persona);
       return persona;
+    }
+
+    /** A persona's lifecycle on another catalog price: the plan and cadence follow the price. */
+    function onPrice(
+      base: BillingPersona,
+      priceKey: BillingPriceKey,
+    ): BillingPersona {
+      const { plan, interval } = BILLING_CATALOG[priceKey];
+      return {
+        ...base,
+        priceKey,
+        subscribedPlan: plan,
+        interval,
+        expected: {
+          ...base.expected,
+          userPlan: base.expected.userPlan === "FREE" ? "FREE" : plan,
+        },
+      };
     }
 
     async function authUser(email: string): Promise<AuthUser> {
@@ -243,6 +276,26 @@ describe.skipIf(!ENABLED)(
       }
     }
 
+    /**
+     * Advances a customer's Test Clock to `to` in steps of under two months. Stripe refuses to move a
+     * clock more than two intervals of its shortest recurring price at once, and a scheduled monthly
+     * phase makes that a month even while the subscription itself is still yearly.
+     */
+    async function advanceClockInSteps(
+      customerId: string,
+      to: Date,
+    ): Promise<void> {
+      const customer = await tooling.fixtures.retrieveCustomer(customerId);
+      const clockId = customer?.testClockId;
+      if (!clockId) throw new Error("The scratch customer has no Test Clock");
+      const clock = await tooling.fixtures.retrieveTestClock(clockId);
+      let at = clock!.frozenTime.getTime();
+      while (at < to.getTime()) {
+        at = Math.min(to.getTime(), at + 55 * DAY_MS);
+        await advanceClock(customerId, new Date(at));
+      }
+    }
+
     /** Evidence stays under the git-ignored `.debug/`; Stripe object ids are kept out of it unless asked. */
     function record(
       name: string,
@@ -266,14 +319,16 @@ describe.skipIf(!ENABLED)(
     });
 
     /**
-     * BILL-01: PRO_MONTHLY → STARTER_MONTHLY (scheduled for the period end) → PRO_YEARLY the same day
-     * (a lengthened cadence, so immediate and invoiced). The user has paid for a year of PRO; at the
-     * old period end they must still be on PRO_YEARLY, and nothing may still be scheduled.
+     * BILL-01: PRO_MONTHLY → STARTER_MONTHLY (scheduled for the period end) → PRO_PLUS_MONTHLY the
+     * same day (a tier upgrade, so immediate and invoiced). The user has paid the Pro+ proration; at
+     * the period end the downgrade was scheduled for they must still be on PRO_PLUS_MONTHLY, and
+     * nothing may still be scheduled.
      *
-     * Observed on 2026-10-16 before the fix: the upgrade succeeded and was invoiced, the schedule
-     * stayed attached with its STARTER_MONTHLY phase, and at the old monthly boundary Stripe moved
-     * the subscription to STARTER_MONTHLY — FactorSage followed to STARTER. The upgrade now releases
-     * the schedule before it updates the price.
+     * Observed on 2026-10-16 before the fix, with the then-sold PRO_YEARLY as the upgrade: the
+     * upgrade succeeded and was invoiced, the schedule stayed attached with its STARTER_MONTHLY
+     * phase, and at the old monthly boundary Stripe moved the subscription to STARTER_MONTHLY —
+     * FactorSage followed to STARTER. The upgrade now releases the schedule before it updates the
+     * price.
      */
     it(
       "BILL-01: an immediate upgrade made while a downgrade is scheduled survives the old period end",
@@ -309,11 +364,11 @@ describe.skipIf(!ENABLED)(
         try {
           const upgrade = await billing.changePlan({
             user: await authUser(persona.email),
-            priceKey: "PRO_YEARLY",
+            priceKey: "PRO_PLUS_MONTHLY",
             requestId: randomUUID(),
           });
           observations.push({
-            step: "changePlan PRO_YEARLY response",
+            step: "changePlan PRO_PLUS_MONTHLY response",
             response: upgrade,
           });
         } catch (error: unknown) {
@@ -322,7 +377,7 @@ describe.skipIf(!ENABLED)(
               ? `${error.name}: ${error.message}`
               : String(error);
           observations.push({
-            step: "changePlan PRO_YEARLY threw",
+            step: "changePlan PRO_PLUS_MONTHLY threw",
             error: upgradeError,
           });
         }
@@ -368,7 +423,7 @@ describe.skipIf(!ENABLED)(
         await advanceClock(seeded.customerId, target);
         await reconcile(persona.email);
         const afterBoundary = await observe(
-          "after the old monthly period end",
+          "after the period end the downgrade was scheduled for",
           persona.email,
           seeded.customerId,
         );
@@ -383,12 +438,12 @@ describe.skipIf(!ENABLED)(
         expect(afterBoundary.stripe).toEqual([
           expect.objectContaining({
             status: "active",
-            price: "PRO_YEAR",
+            price: "PRO_PLUS_MONTH",
             scheduled: false,
           }),
         ]);
         expect(afterBoundary.factorsage).toEqual(
-          expect.objectContaining({ plan: "PRO" }),
+          expect.objectContaining({ plan: "PRO_PLUS" }),
         );
       },
       STRIPE_TIMEOUT_MS,
@@ -551,6 +606,448 @@ describe.skipIf(!ENABLED)(
         ).toBeGreaterThan(periodEnd);
         expect(after.factorsage).toEqual(
           expect.objectContaining({ plan: "PRO" }),
+        );
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /**
+     * A yearly price is charged in full when the subscription starts: one paid invoice for the
+     * catalog's annual amount, whose one line covers a whole year. Nothing is billed monthly.
+     */
+    it.each(YEARLY_KEYS)(
+      "charges the full year of %s upfront",
+      async (priceKey) => {
+        const persona = scratchOf(
+          onPrice(BILLING_PERSONAS.BILLING_PRO_ACTIVE, priceKey),
+        );
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        expect(seeded.problems).toEqual([]);
+        const invoices = await tooling.fixtures.listSubscriptionInvoices(
+          seeded.subscription.id,
+        );
+        const seededState = await observe(
+          `seeded ${priceKey}`,
+          persona.email,
+          seeded.customerId,
+        );
+        record(`yearly-upfront-${priceKey.toLowerCase()}`, [
+          seededState,
+          {
+            step: "invoices",
+            invoices: invoices.map((invoice) => ({
+              status: invoice.status,
+              billingReason: invoice.billingReason,
+              currency: invoice.currency,
+              amountDue: invoice.amountDue,
+              amountPaid: invoice.amountPaid,
+              lines: invoice.lines.map((line) => ({
+                amount: line.amount,
+                days:
+                  (line.periodEnd.getTime() - line.periodStart.getTime()) /
+                  DAY_MS,
+              })),
+            })),
+          },
+        ]);
+
+        const amount = BILLING_CATALOG[priceKey].amountMinorUnits;
+        expect(invoices).toHaveLength(1);
+        const [invoice] = invoices;
+        expect(invoice).toEqual(
+          expect.objectContaining({
+            status: "paid",
+            billingReason: "subscription_create",
+            currency: "usd",
+            amountDue: amount,
+            amountPaid: amount,
+          }),
+        );
+        expect(invoice!.lines).toHaveLength(1);
+        const [line] = invoice!.lines;
+        expect(line!.priceId).toBe(
+          tooling.catalog.resolveKey(priceKey).priceId,
+        );
+        expect(line!.amount).toBe(amount);
+        const days =
+          (line!.periodEnd.getTime() - line!.periodStart.getTime()) / DAY_MS;
+        expect(days).toBeGreaterThanOrEqual(365);
+        expect(days).toBeLessThanOrEqual(366);
+        expect(seededState.factorsage).toEqual(
+          expect.objectContaining({
+            plan: BILLING_CATALOG[priceKey].plan,
+            mirror: expect.objectContaining({
+              price: `${BILLING_CATALOG[priceKey].plan}_YEAR`,
+            }),
+          }),
+        );
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /**
+     * Monthly → yearly within one plan lengthens the cadence: applied at once, and Stripe prorates
+     * it (`always_invoice`) — the unused part of the month is credited against the year, the year
+     * starts now and is charged now.
+     */
+    it(
+      "moves PRO_MONTHLY to PRO_YEARLY at once and invoices the prorated year",
+      async () => {
+        const persona = scratchOf(BILLING_PERSONAS.BILLING_PRO_ACTIVE);
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        expect(seeded.problems).toEqual([]);
+        const observations: unknown[] = [
+          await observe("seeded PRO_MONTHLY", persona.email, seeded.customerId),
+        ];
+
+        const change = await billing.changePlan({
+          user: await authUser(persona.email),
+          priceKey: "PRO_YEARLY",
+          requestId: randomUUID(),
+        });
+        observations.push({ step: "changePlan PRO_YEARLY response", change });
+        await reconcile(persona.email);
+        const after = await observe(
+          "after the cadence change",
+          persona.email,
+          seeded.customerId,
+        );
+        observations.push(after);
+        const invoices = await tooling.fixtures.listSubscriptionInvoices(
+          seeded.subscription.id,
+        );
+        const update = invoices.find(
+          (invoice) => invoice.billingReason === "subscription_update",
+        );
+        observations.push({
+          step: "the proration invoice",
+          status: update?.status ?? null,
+          amountPaid: update?.amountPaid ?? null,
+          lines: update?.lines.map((line) => line.amount) ?? null,
+        });
+        record("cadence-monthly-to-yearly", observations, seeded.customerId);
+
+        expect(change).toEqual(
+          expect.objectContaining({
+            effect: "IMMEDIATE",
+            kind: "CADENCE_LENGTHENED",
+            effectiveAt: null,
+            plan: "PRO",
+          }),
+        );
+        expect(after.stripe).toEqual([
+          expect.objectContaining({
+            status: "active",
+            price: "PRO_YEAR",
+            scheduled: false,
+            pendingUpdate: false,
+          }),
+        ]);
+        expect(after.factorsage).toEqual({
+          plan: "PRO",
+          mirror: expect.objectContaining({
+            status: "ACTIVE",
+            price: "PRO_YEAR",
+            pendingPrice: null,
+          }),
+        });
+        // The new period is a year from the change.
+        const periodEnd = Date.parse(
+          (after.stripe as { periodEnd: string }[])[0]!.periodEnd,
+        );
+        const clockTime = Date.parse(after.clockTime as string);
+        expect((periodEnd - clockTime) / DAY_MS).toBeGreaterThan(364);
+        // Paid now: the year, less the unused month.
+        expect(update).toEqual(expect.objectContaining({ status: "paid" }));
+        expect(update!.amountPaid).toBeGreaterThan(0);
+        expect(update!.amountPaid).toBeLessThan(
+          BILLING_CATALOG.PRO_YEARLY.amountMinorUnits,
+        );
+        expect(update!.lines.some((line) => line.amount < 0)).toBe(true);
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /**
+     * Yearly → monthly within one plan shortens the cadence: the paid year is kept, and the monthly
+     * price starts at its end. Stripe holds it as a Subscription Schedule phase; after the year,
+     * the first monthly invoice is the monthly amount and the spent schedule is released.
+     */
+    it(
+      "schedules PRO_YEARLY to PRO_MONTHLY for the end of the paid year",
+      async () => {
+        const persona = scratchOf(
+          onPrice(BILLING_PERSONAS.BILLING_PRO_ACTIVE, "PRO_YEARLY"),
+        );
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        expect(seeded.problems).toEqual([]);
+        const seededState = await observe(
+          "seeded PRO_YEARLY",
+          persona.email,
+          seeded.customerId,
+        );
+        const observations: unknown[] = [seededState];
+        const yearEnd = Date.parse(
+          (seededState.stripe as { periodEnd: string }[])[0]!.periodEnd,
+        );
+
+        const change = await billing.changePlan({
+          user: await authUser(persona.email),
+          priceKey: "PRO_MONTHLY",
+          requestId: randomUUID(),
+        });
+        observations.push({ step: "changePlan PRO_MONTHLY response", change });
+        const scheduled = await observe(
+          "after scheduling the monthly cadence",
+          persona.email,
+          seeded.customerId,
+        );
+        observations.push(scheduled);
+
+        await advanceClockInSteps(
+          seeded.customerId,
+          new Date(yearEnd + 2 * HOUR_MS),
+        );
+        await reconcile(persona.email);
+        const after = await observe(
+          "after the paid year",
+          persona.email,
+          seeded.customerId,
+        );
+        observations.push(after);
+        const renewal = (
+          await tooling.fixtures.listSubscriptionInvoices(
+            seeded.subscription.id,
+          )
+        ).find((invoice) => invoice.created.getTime() >= yearEnd);
+        observations.push({
+          step: "the first invoice after the year",
+          status: renewal?.status ?? null,
+          amountPaid: renewal?.amountPaid ?? null,
+        });
+        record("cadence-yearly-to-monthly", observations, seeded.customerId);
+
+        expect(change).toEqual({
+          effect: "SCHEDULED",
+          kind: "CADENCE_SHORTENED",
+          effectiveAt: new Date(yearEnd).toISOString(),
+          plan: "PRO",
+        });
+        expect(scheduled.stripe).toEqual([
+          expect.objectContaining({
+            status: "active",
+            price: "PRO_YEAR",
+            scheduled: true,
+            nextPhase: {
+              price: "PRO_MONTH",
+              startsAt: new Date(yearEnd).toISOString(),
+            },
+          }),
+        ]);
+        expect(scheduled.factorsage).toEqual({
+          plan: "PRO",
+          mirror: expect.objectContaining({
+            price: "PRO_YEAR",
+            pendingPrice: "PRO_MONTH",
+            pendingEffectiveAt: new Date(yearEnd).toISOString(),
+          }),
+        });
+
+        expect(after.stripe).toEqual([
+          expect.objectContaining({
+            status: "active",
+            price: "PRO_MONTH",
+            scheduled: false,
+          }),
+        ]);
+        expect(after.factorsage).toEqual({
+          plan: "PRO",
+          mirror: expect.objectContaining({
+            status: "ACTIVE",
+            price: "PRO_MONTH",
+            pendingPrice: null,
+          }),
+        });
+        expect(renewal).toEqual(
+          expect.objectContaining({
+            status: "paid",
+            amountPaid: BILLING_CATALOG.PRO_MONTHLY.amountMinorUnits,
+          }),
+        );
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /** A yearly renewal that cannot be charged goes `past_due` and keeps the plan, as a monthly one does. */
+    it(
+      "keeps the plan of a STARTER_YEARLY subscriber whose renewal failed",
+      async () => {
+        const persona = scratchOf(
+          onPrice(BILLING_PERSONAS.BILLING_STARTER_PAST_DUE, "STARTER_YEARLY"),
+        );
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        const state = await observe(
+          "seeded past_due on STARTER_YEARLY",
+          persona.email,
+          seeded.customerId,
+        );
+        record("yearly-renewal-failure", [state]);
+
+        expect(seeded.problems).toEqual([]);
+        expect(state.stripe).toEqual([
+          expect.objectContaining({
+            status: "past_due",
+            price: "STARTER_YEAR",
+          }),
+        ]);
+        expect(state.factorsage).toEqual({
+          plan: "STARTER",
+          mirror: expect.objectContaining({
+            status: "PAST_DUE",
+            price: "STARTER_YEAR",
+          }),
+        });
+      },
+      STRIPE_TIMEOUT_MS,
+    );
+
+    /**
+     * A subscriber on a retired V1 price (STRIPE_LEGACY_PRICES) keeps it: the same plan and cadence
+     * is "already on that plan", nothing at Stripe moves, and the status says the price is a kept
+     * one. An upgrade is an ordinary upgrade onto today's catalog. Built by moving a fresh
+     * subscription onto the retired price at Stripe directly — the product itself can never sell
+     * one.
+     */
+    it(
+      "keeps a grandfathered V1 subscriber on the retired price until they change plan",
+      async (context) => {
+        const legacy =
+          config.legacyPrices?.find(
+            (entry) => entry.plan === "PRO" && entry.interval === "YEAR",
+          ) ?? config.legacyPrices?.[0];
+        if (!legacy) {
+          // No STRIPE_LEGACY_PRICES configured: no retired price to grandfather.
+          context.skip();
+          return;
+        }
+        const currentKey = findBillingPriceKey(legacy.plan, legacy.interval);
+        const upgradeKey = findBillingPriceKey("PRO_PLUS", legacy.interval);
+        if (!currentKey || !upgradeKey) {
+          throw new Error(
+            `No catalog price for ${legacy.plan}/${legacy.interval}`,
+          );
+        }
+        const persona = scratchOf(
+          onPrice(BILLING_PERSONAS.BILLING_PRO_ACTIVE, currentKey),
+        );
+        const seeded = await seedBillingPersona(tooling, persona, {
+          password: null,
+        });
+        expect(seeded.problems).toEqual([]);
+        const live = await stripe.loadCustomerBillingState(seeded.customerId);
+        await stripe.updateSubscriptionPriceImmediately({
+          subscriptionId: seeded.subscription.id,
+          itemId: live.subscriptions[0]!.itemId!,
+          priceId: legacy.priceId,
+          idempotencyKey: `audit-legacy:${seeded.subscription.id}`,
+        });
+        await reconcile(persona.email);
+        const user = await authUser(persona.email);
+        const grandfathered = await billing.readStatus(user);
+        const observations: unknown[] = [
+          {
+            step: "moved onto the retired price at Stripe",
+            plan: grandfathered.plan,
+            legacyPrice: grandfathered.subscription?.legacyPrice ?? null,
+            onRetiredPrice:
+              grandfathered.subscription !== null &&
+              (
+                await prisma.billingSubscription.findUniqueOrThrow({
+                  where: { userId: user.id },
+                })
+              ).stripePriceId === legacy.priceId,
+          },
+        ];
+
+        let sameError: string | null = null;
+        try {
+          await billing.changePlan({
+            user,
+            priceKey: currentKey,
+            requestId: randomUUID(),
+          });
+        } catch (error: unknown) {
+          sameError =
+            error instanceof Error && "code" in error
+              ? String((error as { code: unknown }).code)
+              : String(error);
+        }
+        const afterRefusal = await stripe.loadCustomerBillingState(
+          seeded.customerId,
+        );
+        observations.push({
+          step: `changePlan ${currentKey} (same plan and cadence)`,
+          error: sameError,
+          stillOnRetiredPrice:
+            afterRefusal.subscriptions[0]?.currentPriceId === legacy.priceId,
+        });
+
+        const upgrade = await billing.changePlan({
+          user: await authUser(persona.email),
+          priceKey: upgradeKey,
+          requestId: randomUUID(),
+        });
+        await reconcile(persona.email);
+        const upgraded = await billing.readStatus(
+          await authUser(persona.email),
+        );
+        const afterUpgrade = await stripe.loadCustomerBillingState(
+          seeded.customerId,
+        );
+        observations.push({
+          step: `changePlan ${upgradeKey}`,
+          upgrade,
+          plan: upgraded.plan,
+          legacyPrice: upgraded.subscription?.legacyPrice ?? null,
+          onTodaysPrice:
+            afterUpgrade.subscriptions[0]?.currentPriceId ===
+            tooling.catalog.resolveKey(upgradeKey).priceId,
+        });
+        record("legacy-grandfathered", observations, seeded.customerId);
+
+        expect(observations[0]).toEqual(
+          expect.objectContaining({
+            plan: legacy.plan,
+            legacyPrice: true,
+            onRetiredPrice: true,
+          }),
+        );
+        expect(observations[1]).toEqual(
+          expect.objectContaining({
+            error: "BILLING_CHANGE_NOT_ALLOWED",
+            stillOnRetiredPrice: true,
+          }),
+        );
+        expect(upgrade).toEqual(
+          expect.objectContaining({
+            effect: "IMMEDIATE",
+            kind: "TIER_UPGRADE",
+          }),
+        );
+        expect(observations[2]).toEqual(
+          expect.objectContaining({
+            plan: "PRO_PLUS",
+            legacyPrice: false,
+            onTodaysPrice: true,
+          }),
         );
       },
       STRIPE_TIMEOUT_MS,

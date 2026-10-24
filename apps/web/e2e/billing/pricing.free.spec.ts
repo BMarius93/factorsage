@@ -82,15 +82,19 @@ test.describe("FREE pricing", () => {
     });
 
     await page.goto("/pricing");
-    await page.getByRole("radio", { name: "Yearly" }).check();
-    const pro = page.getByTestId("plan-action-PRO");
-    await expect(pro).toHaveText("Upgrade to Pro", { timeout: 20_000 });
-    await expect(pro).toHaveAttribute("data-price-key", "PRO_YEARLY");
-    await pro.click();
+    // The cadence chosen on the page decides the price sent: the card's own, yearly here.
+    const proPlus = page.getByTestId("plan-action-PRO_PLUS");
+    await expect(proPlus).toHaveText("Upgrade to Pro+", { timeout: 20_000 });
+    await page.getByRole("radio", { name: /Yearly/ }).check();
+    await expect(proPlus).toHaveAttribute("data-price-key", "PRO_PLUS_YEARLY");
+    await expect(page.getByTestId("plan-price-note-PRO_PLUS")).toHaveText(
+      "Billed annually: $1,790 upfront",
+    );
+    await proPlus.click();
 
     await expect
       .poll(() => sentBody, { timeout: 20_000 })
-      .toEqual({ priceKey: "PRO_YEARLY" });
+      .toEqual({ priceKey: "PRO_PLUS_YEARLY" });
     await expect
       .poll(() => page.url(), { timeout: 20_000 })
       .toContain(STUB_CHECKOUT_URL);
