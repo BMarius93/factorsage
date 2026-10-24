@@ -282,6 +282,9 @@ describe("stock lists", () => {
       expect(summary?.universe).toEqual({
         kind: "POINT_IN_TIME_INDEX",
         indexKey: "SP500",
+        universeKey: "sp500-historical-pit",
+        category: "MARKET_INDICES",
+        derived: false,
         distinctSecurities: 3,
         peakSimultaneousMembers: 3,
         currentMembers: 2,
@@ -292,6 +295,56 @@ describe("stock lists", () => {
         .body as StockListDetailResponse;
       expect(detail.canEdit).toBe(false);
       expect(detail.universe?.peakSimultaneousMembers).toBe(3);
+    });
+
+    it("is never duplicated, on any plan: a copy would stop being maintained", async () => {
+      for (const agent of [owner, admin]) {
+        const response = await agent
+          .post(`/lists/${universeId}/duplicate`)
+          .send({ name: "My S&P 500" })
+          .expect(409);
+        expect(response.body.message).toContain("cannot be duplicated");
+      }
+      expect(
+        await prisma.stockList.count({ where: { name: "My S&P 500" } }),
+      ).toBe(0);
+    });
+
+    it("lists it in the historical universe catalog, available, with every other catalog universe", async () => {
+      const guest = request.agent(app.getHttpServer());
+      const catalog = (await guest.get("/lists/universes").expect(200)).body as {
+        categories: {
+          key: string;
+          universes: {
+            key: string;
+            availability: string;
+            listId: string | null;
+            locked: boolean;
+            unavailableReason: string | null;
+          }[];
+        }[];
+      };
+      const entries = catalog.categories.flatMap((category) => category.universes);
+      // The 23 customer-facing universes, and never an internal research one.
+      expect(entries).toHaveLength(23);
+      expect(catalog.categories.map((category) => category.key)).not.toContain("RESEARCH");
+      expect(entries.some((entry) => entry.key === "sp500-top25-market-cap")).toBe(false);
+      const sp500 = entries.find((entry) => entry.key === universeKey);
+      // The S&P 500's List keeps its 1996 floor, whatever its validated reliable period.
+      expect(sp500).toMatchObject({
+        availability: "AVAILABLE",
+        listId: universeId,
+        locked: true,
+        availableFrom: "1996-01-02",
+      });
+      const energy = entries.find((entry) => entry.key === "sp500-sector-energy");
+      expect(energy).toMatchObject({ availability: "UNAVAILABLE", listId: null });
+      expect(energy?.unavailableReason).toContain("sector classification");
+      // A plan with premium content sees the same catalog, unlocked.
+      const signedIn = (await owner.get("/lists/universes").expect(200)).body as typeof catalog;
+      expect(
+        signedIn.categories.flatMap((category) => category.universes).every((entry) => !entry.locked),
+      ).toBe(true);
     });
 
     it("refuses every edit, administrators included", async () => {
@@ -378,6 +431,75 @@ describe("stock lists", () => {
       } finally {
         await prisma.indexMembershipSync.delete({ where: { id: sync.id } });
       }
+    });
+  });
+
+  /**
+   * A universe derived from an index (`docs/decisions/historical-universes-v1.md` §6): maintained
+   * like the index's own List — measured, never edited, never copied — and drawn from its root index.
+   */
+  describe("a derived historical universe", () => {
+    const universeKey = "sp500-top100-market-cap";
+    let universeId = "";
+
+    beforeAll(async () => {
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+      const list = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: universeKey,
+          name: "S&P 500 Top 100 by Market Cap",
+          premium: true,
+          items: {
+            create: [
+              {
+                securityId: securityIds[0] as string,
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2016-01-01T00:00:00.000Z"),
+                      endDate: new Date("2016-03-31T00:00:00.000Z"),
+                    },
+                    { startDate: new Date("2016-07-01T00:00:00.000Z"), endDate: null },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      universeId = list.id;
+    });
+
+    afterAll(async () => {
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+    });
+
+    it("is measured as a maintained universe drawn from the S&P 500", async () => {
+      const collection = (await owner.get("/lists").expect(200))
+        .body as StockListSummaryResponse[];
+      const summary = collection.find((list) => list.id === universeId);
+      expect(summary?.canEdit).toBe(false);
+      expect(summary?.universe).toMatchObject({
+        kind: "POINT_IN_TIME_INDEX",
+        indexKey: "SP500",
+        universeKey,
+        category: "MARKET_CAPITALIZATION",
+        derived: true,
+        distinctSecurities: 1,
+        peakSimultaneousMembers: 1,
+        currentMembers: 1,
+      });
+    });
+
+    it("is never duplicated or edited", async () => {
+      await owner
+        .post(`/lists/${universeId}/duplicate`)
+        .send({ name: "My Top 100" })
+        .expect(409);
+      await owner.patch(`/lists/${universeId}`).send({ name: "Renamed" }).expect(403);
+      expect(await prisma.stockList.count({ where: { name: "My Top 100" } })).toBe(0);
     });
   });
 

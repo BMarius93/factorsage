@@ -1,5 +1,7 @@
+import type { MarketIndexKey } from "@intrinsic/domain";
 import {
   FMP_ENDPOINT_CLASSES,
+  FMP_MEMBERSHIP_INDEX_PATHS,
   FmpRequestRefusedError,
   normalizeFmpSymbol,
   type FmpRequestBudget,
@@ -13,9 +15,9 @@ import {
  * The run is owner-authorized and large — about a thousand securities' full histories — so its
  * limits are a scope and a budget rather than a security count:
  *
- * - **Directories:** the index's own membership endpoints, the rename history and the delisted
- *   directory, and the exchange calendar the loaders' finality reads. Never the exchange-wide
- *   screener, never the Congress member directory.
+ * - **Directories:** the run's index's own membership endpoints — never another index's — the
+ *   rename history and the delisted directory, and the exchange calendar the loaders' finality
+ *   reads. Never the exchange-wide screener, never the Congress member directory.
  * - **Securities:** only symbols the canonical membership names — the resolution's candidate tickers
  *   while resolving, the resolved securities' provider symbols while ingesting. The set is fixed when
  *   the guard is built, from PostgreSQL, and nothing can add to it.
@@ -25,12 +27,18 @@ import {
  * It keeps counts per endpoint and never a response or the key.
  */
 
-const DIRECTORY_ENDPOINTS = new Set([
-  "sp500-constituent",
-  "historical-sp500-constituent",
-  "symbol-change",
-  "delisted-companies",
-]);
+/** The run's index's own two membership endpoints, the rename history and the delisted directory. */
+export function directoryEndpointsFor(
+  indexKey: MarketIndexKey,
+): ReadonlySet<string> {
+  const paths = FMP_MEMBERSHIP_INDEX_PATHS[indexKey];
+  return new Set([
+    paths.constituents,
+    paths.changes,
+    "symbol-change",
+    "delisted-companies",
+  ]);
+}
 
 const EXCHANGE_ENDPOINTS = new Set(["holidays-by-exchange"]);
 
@@ -58,11 +66,14 @@ export class IndexUniverseRequestGuard implements FmpRequestGuard {
     symbol: string | null;
   }[] = [];
   private closedBy: string | null = null;
+  private readonly directories: ReadonlySet<string>;
 
   constructor(
     symbols: Iterable<string>,
     private readonly budget: FmpRequestBudget,
+    indexKey: MarketIndexKey = "SP500",
   ) {
+    this.directories = directoryEndpointsFor(indexKey);
     const normalized = new Set<string>();
     for (const raw of symbols) {
       const symbol = normalizeFmpSymbol(raw);
@@ -86,7 +97,7 @@ export class IndexUniverseRequestGuard implements FmpRequestGuard {
       this.refuse("UNKNOWN_ENDPOINT", request);
     }
     if (endpoint?.subject === "DIRECTORY") {
-      if (!DIRECTORY_ENDPOINTS.has(request.path)) {
+      if (!this.directories.has(request.path)) {
         this.refuse("NOT_A_SECURITY_ENDPOINT", request);
       }
     } else if (endpoint?.subject === "EXCHANGE") {

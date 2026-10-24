@@ -58,12 +58,20 @@ export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 1_000;
 export const BUY_WINDOW_MAX_RANGES = 100;
 
 /**
- * The point-in-time index universe a built-in List carries (`docs/decisions/sp500-historical-pit-v1.md`).
- * Present only on that List.
+ * The maintained historical universe a built-in List carries: an index's own membership
+ * (`docs/decisions/sp500-historical-pit-v1.md`) or a universe derived from one
+ * (`docs/decisions/historical-universes-v1.md`). Present only on those Lists.
  */
 export type StockListUniverseResponse = {
   kind: "POINT_IN_TIME_INDEX";
+  /** The root index the universe is drawn from. */
   indexKey: string;
+  /** The universe's catalog key: the List's `systemKey`. */
+  universeKey: string;
+  /** Its catalog group: `MARKET_INDICES`, `MARKET_CAPITALIZATION`, `INVESTMENT_STYLES`, ... */
+  category: string;
+  /** False for an index's own membership; true for a ranking drawn from one. */
+  derived: boolean;
   /** Distinct securities the List holds: every tradeable constituent since the floor. */
   distinctSecurities: number;
   /**
@@ -175,4 +183,40 @@ export type AddStockListItemsRequest = {
 export type ReplaceBuyWindowsRequest = {
   mode: BuyWindowMode;
   ranges: { startDate: string; endDate: string | null }[];
+};
+
+/**
+ * `GET /lists/universes`: the historical universe catalog (`docs/decisions/historical-universes-v1.md`
+ * §6), grouped as the Lists page shows it. Metadata only, read from PostgreSQL: no membership, no
+ * provider request. Every catalog universe is listed, available or not, so the page can say
+ * "Historical data unavailable" rather than leave a universe out; internal research universes are
+ * never listed.
+ */
+export type HistoricalUniverseCatalogResponse = {
+  categories: {
+    key: string;
+    label: string;
+    universes: HistoricalUniverseCatalogEntry[];
+  }[];
+};
+
+export type HistoricalUniverseCatalogEntry = {
+  key: string;
+  name: string;
+  description: string;
+  /** Every catalog universe is premium (Pro). */
+  premium: true;
+  /** True when the viewer's plan does not include premium content: "Requires Pro". */
+  locked: boolean;
+  /**
+   * `AVAILABLE`: published, with a List to open and select. `UNAVAILABLE`: its point-in-time data is
+   * not available or not validated yet — "Historical data unavailable", whatever the plan.
+   */
+  availability: "AVAILABLE" | "UNAVAILABLE";
+  /** The built-in List carrying it, once published. */
+  listId: string | null;
+  /** The first date its List holds members: its validated reliable period. */
+  availableFrom: string | null;
+  /** Why it is unavailable, in a sentence; null when available. */
+  unavailableReason: string | null;
 };

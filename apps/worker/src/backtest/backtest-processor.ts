@@ -11,12 +11,14 @@ import {
   type StrategyEtfSourceCode,
 } from "@intrinsic/contracts";
 import { BacktestRunStatus } from "@intrinsic/database";
-import type {
-  BenchmarkSeries,
-  BenchmarkDailyPrice,
-  DateRange,
-  LocalDate,
-  Security,
+import {
+  isMarketIndexKey,
+  isProtectedTierIndex,
+  type BenchmarkSeries,
+  type BenchmarkDailyPrice,
+  type DateRange,
+  type LocalDate,
+  type Security,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
@@ -674,7 +676,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
       );
     }
 
-    if (snapshot.stockList?.universe && this.dependencies.protectedTier) {
+    // Only a universe drawn from a protected index (the S&P 500) is designated: a Nasdaq-100 or Dow
+    // run reads its non-S&P members through the bounded LRU (`historical-universes-v1.md` §7).
+    if (
+      snapshot.stockList?.universe &&
+      isMarketIndexKey(snapshot.stockList.universe.indexKey) &&
+      isProtectedTierIndex(snapshot.stockList.universe.indexKey) &&
+      this.dependencies.protectedTier
+    ) {
       const designated = await this.dependencies.protectedTier.protectStocks(
         snapshot.securities.map((member) => member.securityId),
       );

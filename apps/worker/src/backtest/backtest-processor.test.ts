@@ -686,14 +686,15 @@ describe("engine methodology compatibility", () => {
  * first one is prepared, so preparing ~700 securities never evicts the stocks people are reading.
  */
 describe("the protected tier", () => {
-  const universeSnapshot = () =>
+  const universeSnapshot = (indexKey = "SP500", universeKey?: string) =>
     snapshotDocument({
       stockList: {
         stockListId: "list-1",
         name: "S&P 500 — Historical PIT",
         universe: {
           kind: "POINT_IN_TIME_INDEX",
-          indexKey: "SP500",
+          indexKey,
+          ...(universeKey ? { universeKey } : {}),
           peakSimultaneousMembers: 1,
         },
       },
@@ -760,6 +761,29 @@ describe("the protected tier", () => {
     const { processor, events } = recordingProcessor();
     await processor.process(claimOf(universeSnapshot()), lease);
     expect(events).toEqual(["protect:security-1", "prepare:security-1"]);
+  });
+
+  it("designates a universe derived from the S&P 500 too: its securities are S&P 500 securities", async () => {
+    const { processor, events } = recordingProcessor();
+    await processor.process(
+      claimOf(universeSnapshot("SP500", "sp500-top100-market-cap")),
+      lease,
+    );
+    expect(events).toEqual(["protect:security-1", "prepare:security-1"]);
+  });
+
+  it("designates nothing for a Nasdaq-100 or Dow universe: only the S&P 500 is protected", async () => {
+    for (const [indexKey, universeKey] of [
+      ["NASDAQ100", undefined],
+      ["DOW30", "dogs-of-the-dow"],
+    ] as const) {
+      const { processor, events } = recordingProcessor();
+      await processor.process(
+        claimOf(universeSnapshot(indexKey, universeKey)),
+        lease,
+      );
+      expect(events).toEqual(["prepare:security-1"]);
+    }
   });
 
   it("designates nothing for a user's List", async () => {

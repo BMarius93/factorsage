@@ -34,6 +34,10 @@ import {
  *   the safe way to bring the universe up to date after the initial load.
  * - **Shardable.** `--shard i/n` takes every n-th security, so several processes share the CPU of the
  *   derived-state rebuilds while the one provider gate keeps their combined traffic inside the plan.
+ * - **Shared across indexes.** A security's history is one dataset whichever index names it
+ *   (`docs/decisions/historical-universes-v1.md` §7): a security another index's run already loaded
+ *   is checkpointed here as reused, at no provider cost, instead of being loaded again. `--refresh`
+ *   and `--symbols` still repeat it.
  */
 
 export const INGESTION_STEPS = [
@@ -52,6 +56,8 @@ export type IngestionStepOutcome = {
 };
 
 export type IndexUniverseIngestionSummary = {
+  /** Securities another index's run already loaded, checkpointed here without a provider request. */
+  readonly reused: number;
   readonly selected: number;
   readonly succeeded: number;
   readonly failed: number;
@@ -149,14 +155,23 @@ export async function runIndexUniverseIngestion(input: {
     });
   }
 
+  const wantedSymbols = input.selection.symbols
+    ? new Set(input.selection.symbols.map((symbol) => symbol.toUpperCase()))
+    : null;
+  const reused = input.selection.refresh
+    ? 0
+    : await reuseOtherIndexIngestions(
+        prisma,
+        indexKey,
+        universe,
+        wantedSymbols,
+      );
+
   const progress = new Map(
     (await prisma.indexUniverseIngestion.findMany({ where: { indexKey } })).map(
       (row) => [row.securityId, row],
     ),
   );
-  const wantedSymbols = input.selection.symbols
-    ? new Set(input.selection.symbols.map((symbol) => symbol.toUpperCase()))
-    : null;
   let work = universe.filter((entry) => {
     if (wantedSymbols && !wantedSymbols.has(entry.providerSymbol)) {
       return false;
@@ -187,6 +202,7 @@ export async function runIndexUniverseIngestion(input: {
     event: "index.ingest.started",
     indexKey: input.indexKey,
     universe: universe.length,
+    reused,
     selected: work.length,
     concurrency: input.concurrency,
     shard: input.selection.shard,
@@ -235,6 +251,7 @@ export async function runIndexUniverseIngestion(input: {
     Array.from({ length: Math.max(1, input.concurrency) }, () => worker()),
   );
   const summary = {
+    reused,
     selected: work.length,
     succeeded,
     failed,
@@ -245,6 +262,75 @@ export async function runIndexUniverseIngestion(input: {
   };
   logger.info({ event: "index.ingest.completed", ...summary });
   return summary;
+}
+
+/**
+ * Checkpoints as succeeded, without a provider request, every pending security of this universe
+ * whose full history another index's run already loaded. Returns how many.
+ */
+async function reuseOtherIndexIngestions(
+  prisma: PrismaClient,
+  indexKey: MarketIndexKeyEnum,
+  universe: readonly UniverseSecurity[],
+  wantedSymbols: ReadonlySet<string> | null,
+): Promise<number> {
+  const candidates = universe.filter(
+    (entry) =>
+      wantedSymbols === null || !wantedSymbols.has(entry.providerSymbol),
+  );
+  if (candidates.length === 0) {
+    return 0;
+  }
+  const pending = new Set(
+    (
+      await prisma.indexUniverseIngestion.findMany({
+        where: {
+          indexKey,
+          status: IndexIngestionStatus.PENDING,
+          securityId: { in: candidates.map((entry) => entry.securityId) },
+        },
+        select: { securityId: true },
+      })
+    ).map((row) => row.securityId),
+  );
+  if (pending.size === 0) {
+    return 0;
+  }
+  const elsewhere = await prisma.indexUniverseIngestion.findMany({
+    where: {
+      indexKey: { not: indexKey },
+      status: IndexIngestionStatus.SUCCEEDED,
+      securityId: { in: [...pending] },
+    },
+    select: { securityId: true, indexKey: true, lastCompletedAt: true },
+    orderBy: [{ securityId: "asc" }, { indexKey: "asc" }],
+  });
+  const source = new Map<string, (typeof elsewhere)[number]>();
+  for (const row of elsewhere) {
+    if (!source.has(row.securityId)) {
+      source.set(row.securityId, row);
+    }
+  }
+  for (const [securityId, row] of source) {
+    const detail = `reused: loaded by the ${row.indexKey} ingestion${row.lastCompletedAt ? ` at ${row.lastCompletedAt.toISOString()}` : ""}`;
+    await prisma.indexUniverseIngestion.update({
+      where: { indexKey_securityId: { indexKey, securityId } },
+      data: {
+        status: IndexIngestionStatus.SUCCEEDED,
+        lastCompletedAt: new Date(),
+        lastError: null,
+        providerRequests: 0,
+        durationMs: 0,
+        stepOutcomes: INGESTION_STEPS.map((step) => ({
+          step,
+          status: "COMPLETED",
+          durationMs: 0,
+          detail,
+        })) as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+  return source.size;
 }
 
 async function ingestSecurity(

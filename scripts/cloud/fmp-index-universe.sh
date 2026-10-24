@@ -7,11 +7,14 @@
 #   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh resolve
 #   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh ingest --concurrency 2
 #   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh benchmarks
+#   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh dividends --index SP500
+#   RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh sync --index NASDAQ100
 #   scripts/cloud/fmp-index-universe.sh report --out artifacts/sp500-historical-pit/report.json
 #   scripts/cloud/fmp-index-universe.sh protect --concurrency 4
 #   scripts/cloud/fmp-index-universe.sh tiers --out artifacts/sp500-historical-pit/tiers.json
 #
-# The owner authorized this universe-wide load (2026-10-17). It is deliberately not a general
+# The owner authorized this universe-wide load (2026-10-17), and on 2026-10-24 the Nasdaq-100 and Dow
+# memberships (at most 6,000 requests) and the dividend histories (about 750). It is deliberately not a general
 # wrapper: it cannot start a stack, a worker or a test run with the provider configured. Its
 # arguments are the index-universe command's, whose client carries a guard admitting the index's
 # own directory endpoints and, per security, only the symbols the canonical membership names, inside
@@ -31,7 +34,7 @@ if [ "${1:-}" = "--" ]; then
   shift
 fi
 if [ "$#" -eq 0 ]; then
-  echo "Usage: [RUN_INDEX_UNIVERSE_INGESTION=1] scripts/cloud/fmp-index-universe.sh <sync|resolve|project|ingest|benchmarks|report|protect|tiers> [options]" >&2
+  echo "Usage: [RUN_INDEX_UNIVERSE_INGESTION=1] scripts/cloud/fmp-index-universe.sh <sync|resolve|project|ingest|benchmarks|dividends|report|protect|tiers> [options]" >&2
   exit 2
 fi
 
@@ -42,7 +45,7 @@ cloud_assert_safe
 cd "$CLOUD_REPO_ROOT"
 
 case "$command" in
-  sync | resolve | ingest | benchmarks)
+  sync | resolve | ingest | benchmarks | dividends)
     if [ "$opt_in" != "1" ]; then
       echo "Refusing: '$command' reaches the provider. Set RUN_INDEX_UNIVERSE_INGESTION=1 on this command." >&2
       exit 2

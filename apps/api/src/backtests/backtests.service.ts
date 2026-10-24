@@ -83,7 +83,7 @@ import {
   DEFAULT_BENCHMARK_CODE,
   normalizeBuyWindowConfiguration,
   peakSimultaneousMembers,
-  pointInTimeIndexUniverseForList,
+  maintainedUniverseForList,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
@@ -1191,13 +1191,14 @@ export class BacktestsService {
         "The selected stock list is empty; add at least one stock before running a backtest",
       );
     }
-    // The built-in point-in-time index universe is measured differently from every other List
-    // (`docs/decisions/sp500-historical-pit-v1.md` §5): by the most members it held at once in the
-    // period, against its own entitlement and its own engine ceiling. Only the SYSTEM List itself —
-    // a customer's duplicate is an ordinary List held to the ordinary limits.
+    // A maintained historical universe — an index's membership or a universe derived from one — is
+    // measured differently from every other List (`docs/decisions/sp500-historical-pit-v1.md` §5,
+    // `historical-universes-v1.md` §6): by the most members it held at once in the period, against
+    // its own entitlement and its own engine ceiling. Only the SYSTEM List itself, which no customer
+    // can copy.
     const indexUniverse =
       stockList.ownership === ContentOwnership.SYSTEM
-        ? pointInTimeIndexUniverseForList(stockList.systemKey)
+        ? maintainedUniverseForList(stockList.systemKey)
         : null;
     // Premium before size: a plan without premium content is told that, not that a universe is
     // larger than a limit (entitlements-v2 §6). A point-in-time universe is premium by definition.
@@ -1349,6 +1350,7 @@ export class BacktestsService {
       universe = {
         kind: "POINT_IN_TIME_INDEX",
         indexKey: indexUniverse.indexKey,
+        ...(indexUniverse.derived ? { universeKey: indexUniverse.universeKey } : {}),
         peakSimultaneousMembers: peak.peak,
       };
     }

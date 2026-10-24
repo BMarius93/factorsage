@@ -19,8 +19,17 @@ import type { ProjectedIndexListMember } from "@intrinsic/stock-data";
  */
 export async function writeIndexUniverseList(input: {
   readonly prisma: PrismaClient;
-  readonly universe: PointInTimeIndexUniverse;
-  readonly members: readonly ProjectedIndexListMember[];
+  /** The List's identity: an index universe's, or a derived universe's (`MaintainedUniverse`). */
+  readonly universe: Pick<
+    PointInTimeIndexUniverse,
+    "listSystemKey" | "listName" | "listDescription"
+  >;
+  readonly members: readonly Pick<
+    ProjectedIndexListMember,
+    "securityId" | "ranges"
+  >[];
+  /** Its place among the built-ins; the S&P 500's 0 when omitted. */
+  readonly displayOrder?: number;
 }): Promise<{
   listId: string;
   added: number;
@@ -39,7 +48,7 @@ export async function writeIndexUniverseList(input: {
           systemKey: universe.listSystemKey,
           name: universe.listName,
           description: universe.listDescription,
-          displayOrder: 0,
+          displayOrder: input.displayOrder ?? 0,
           // A point-in-time index universe is premium content by definition
           // (`docs/decisions/entitlements-v2.md` §6).
           premium: true,
@@ -48,6 +57,9 @@ export async function writeIndexUniverseList(input: {
           name: universe.listName,
           description: universe.listDescription,
           premium: true,
+          ...(input.displayOrder === undefined
+            ? {}
+            : { displayOrder: input.displayOrder }),
         },
         select: { id: true },
       });

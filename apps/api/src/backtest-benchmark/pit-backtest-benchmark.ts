@@ -17,7 +17,10 @@ import {
 } from "@intrinsic/contracts";
 import { getRedisConfig, loadRootEnv } from "@intrinsic/config";
 import type { Prisma, PrismaClient } from "@intrinsic/database";
-import { SP500_HISTORICAL_PIT_UNIVERSE } from "@intrinsic/domain";
+import {
+  maintainedUniverseForList,
+  SP500_HISTORICAL_PIT_UNIVERSE,
+} from "@intrinsic/domain";
 import { createStockDataRedisClient } from "@intrinsic/stock-data";
 import { Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -137,7 +140,8 @@ type Arguments = {
   workerEnv: Record<string, string>;
   /** Caps each worker's PostgreSQL pool, so many workers stay inside `max_connections`. */
   pgConnections: number | null;
-  list: "universe" | "mixed";
+  /** `universe` (the S&P 500's), `mixed`, or any published catalog universe's key. */
+  list: string;
 };
 
 function parseArguments(argv: readonly string[]): Arguments {
@@ -213,8 +217,14 @@ function parseArguments(argv: readonly string[]): Arguments {
         break;
       case "--list": {
         const list = value();
-        if (list !== "universe" && list !== "mixed") {
-          throw new Error("--list must be universe or mixed");
+        if (
+          list !== "universe" &&
+          list !== "mixed" &&
+          maintainedUniverseForList(list) === null
+        ) {
+          throw new Error(
+            "--list must be universe, mixed or a catalog universe's key",
+          );
         }
         parsed.list = list;
         break;
@@ -661,12 +671,19 @@ async function main(): Promise<void> {
       args.list === "mixed"
         ? await ensureMixedList(prisma, owner.id)
         : await prisma.stockList.findFirst({
-            where: { systemKey: SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey },
+            where: {
+              systemKey:
+                args.list === "universe"
+                  ? SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey
+                  : args.list,
+            },
             select: { id: true, _count: { select: { items: true } } },
           });
     if (!list) {
       throw new Error(
-        "The S&P 500 point-in-time List is not projected: run `index-universe project`",
+        args.list === "universe"
+          ? "The S&P 500 point-in-time List is not projected: run `index-universe project`"
+          : `${args.list} is not published: run \`data:historical-universes publish ${args.list}\``,
       );
     }
 

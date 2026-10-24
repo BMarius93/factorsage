@@ -80,7 +80,7 @@ export class SystemContentReadOnlyError extends Error {
 export class SystemContentMaintainedError extends SystemContentReadOnlyError {
   constructor(name: string) {
     super("lists");
-    this.message = `${name} is maintained from the index membership dataset and cannot be edited`;
+    this.message = `${name} is maintained from its historical membership data and cannot be edited`;
     this.name = "SystemContentMaintainedError";
   }
 }
