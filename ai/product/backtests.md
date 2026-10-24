@@ -16,13 +16,15 @@ A submitted run selects:
 - `maximumPositions`;
 - a benchmark to compare against.
 
-The stock list's size is measured against the plan's `backtests.maxSymbols` (100 for Pro). The one
-exception is the built-in **S&P 500 — Historical PIT** universe
-(`docs/decisions/sp500-historical-pit-v1.md` §5): it is measured by the most members eligible on any
+The stock list's size is measured against the plan's `backtests.maxSymbols` (100 for Pro). The
+exception is a built-in **historical universe** — the S&P 500, Nasdaq-100 and Dow memberships and
+the universes derived from them (`docs/decisions/sp500-historical-pit-v1.md` §5,
+`docs/decisions/historical-universes-v1.md` §6): it is measured by the most members eligible on any
 one date of the requested period, against `backtests.maxIndexUniverseConstituents` (Pro 550, Free
 and Starter 0), and by the engine ceilings of 2,000 securities and 600 simultaneous members.
 Members that were never members during the period are left out of the run, and the snapshot
-records the universe and its measured peak. A customer's copy of the universe is an ordinary list.
+records the universe — its root `indexKey`, and a derived universe's `universeKey` — and its
+measured peak. A universe cannot be copied into a customer's list.
 
 There is no user-entered maximum-allocation percentage. The full-position portfolio fraction is
 derived at execution:

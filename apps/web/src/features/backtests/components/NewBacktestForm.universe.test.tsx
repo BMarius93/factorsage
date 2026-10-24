@@ -85,6 +85,9 @@ const universeList = (peak: number): StockListSummaryResponse => ({
   universe: {
     kind: "POINT_IN_TIME_INDEX",
     indexKey: "SP500",
+    universeKey: "sp500-historical-pit",
+    category: "MARKET_INDICES",
+    derived: false,
     distinctSecurities: 731,
     peakSimultaneousMembers: peak,
     currentMembers: 503,
@@ -156,7 +159,7 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
     expect(
       text(await screen.findByTestId("backtest-universe-over-limit")),
     ).toBe(
-      "Backtests over the S&P 500 Historical PIT universe are part of the Pro and Pro+ plans. See plans",
+      "Backtests over the S&P 500 — Historical PIT universe are part of the Pro and Pro+ plans. See plans",
     );
     expect(
       screen.getByTestId("backtest-universe-see-plans").getAttribute("href"),

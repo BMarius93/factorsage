@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  HistoricalUniverseCatalogResponse,
   StockListComplianceResponse,
   StockListDetailResponse,
   StockListItemResponse,
@@ -9,11 +10,19 @@ import type {
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import {
+  CATALOG_HISTORICAL_UNIVERSES,
+  HISTORICAL_UNIVERSE_CATEGORIES,
+  HISTORICAL_UNIVERSE_CATEGORY_LABELS,
+  HISTORICAL_UNIVERSE_FLOOR,
+  maintainedUniverseForList,
+  maintainedUniverseOf,
   normalizeBuyWindowConfiguration,
   peakSimultaneousMembers,
-  pointInTimeIndexUniverseForList,
+  publishedListFloor,
+  unavailableRequirements,
   type BuyWindowConfiguration,
-  type PointInTimeIndexUniverse,
+  type HistoricalUniverseDefinition,
+  type MaintainedUniverse,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
@@ -27,6 +36,7 @@ import {
   readableWhere,
   SystemContentMaintainedError,
   SystemContentProtectedError,
+  viewerEntitlements,
   type ContentViewer,
 } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
@@ -61,6 +71,22 @@ export class StockListInUseByMonitorError extends Error {
         : "This list is used by a monitor. Delete the monitor first.",
     );
     this.name = "StockListInUseByMonitorError";
+  }
+}
+
+/**
+ * Raised when a maintained historical universe is duplicated (`historical-universes-v1.md` §6).
+ *
+ * A copy would be an ordinary customer List carrying a premium universe's membership: it would stop
+ * being maintained, so it would stop being point-in-time, and it would stay usable after a downgrade
+ * — the premium universe without the plan. No plan unlocks it.
+ */
+export class MaintainedUniverseCopyError extends Error {
+  constructor() {
+    super(
+      "This built-in universe is maintained by FactorSage and cannot be duplicated. Use it directly in a backtest or a monitor.",
+    );
+    this.name = "MaintainedUniverseCopyError";
   }
 }
 
@@ -137,16 +163,30 @@ function itemResponse(item: ItemRow): StockListItemResponse {
 }
 
 /**
- * The point-in-time index universe a List carries: only the SYSTEM List whose `systemKey` names one.
- * A customer's duplicate of it is an ordinary List.
+ * The maintained historical universe a List carries — an index's membership or a universe derived
+ * from one: only the SYSTEM List whose `systemKey` names one. A customer's List never does.
  */
 function maintainedUniverse(list: {
   ownership: "USER" | "SYSTEM";
   systemKey: string | null;
-}): PointInTimeIndexUniverse | null {
+}): MaintainedUniverse | null {
   return list.ownership === "SYSTEM"
-    ? pointInTimeIndexUniverseForList(list.systemKey)
+    ? maintainedUniverseForList(list.systemKey)
     : null;
+}
+
+/** Why a catalog universe is unavailable, as the Lists page says it. */
+function unavailableReasonOf(
+  definition: HistoricalUniverseDefinition,
+  status: string | undefined,
+): string {
+  if (unavailableRequirements(definition).includes("HISTORICAL_SECTOR_CLASSIFICATION")) {
+    return "Historical data unavailable: no point-in-time sector classification is available for past members, and today's sectors are never applied to the past.";
+  }
+  if (status === "BLOCKED") {
+    return "Historical data unavailable: a dataset this universe requires is not available.";
+  }
+  return "Historical data unavailable: its point-in-time data has not been validated yet.";
 }
 
 /** How a premium refusal names this List: a point-in-time universe, or a premium predefined List. */
@@ -162,7 +202,7 @@ function premiumKindOf(list: {
  * once since the floor, and the members today.
  */
 export function universeResponse(
-  universe: PointInTimeIndexUniverse,
+  universe: MaintainedUniverse,
   windows: readonly BuyWindowConfiguration[],
   today: string,
   syncedAt: Date | null,
@@ -170,6 +210,9 @@ export function universeResponse(
   return {
     kind: "POINT_IN_TIME_INDEX",
     indexKey: universe.indexKey,
+    universeKey: universe.universeKey,
+    category: universe.category,
+    derived: universe.derived,
     distinctSecurities: windows.length,
     peakSimultaneousMembers: peakSimultaneousMembers(windows, {
       from: universe.membershipFloor,
@@ -300,6 +343,71 @@ export class StockListsService {
   }
 
   /**
+   * The historical universe catalog, grouped for the Lists page (`historical-universes-v1.md` §6):
+   * every catalog universe with its availability, read from two small PostgreSQL queries. Nothing
+   * here reads a membership or reaches the provider.
+   */
+  async universeCatalog(viewer: ContentViewer): Promise<HistoricalUniverseCatalogResponse> {
+    const keys = CATALOG_HISTORICAL_UNIVERSES.map((definition) => definition.key);
+    const [lists, states] = await Promise.all([
+      this.prisma.stockList.findMany({
+        where: { ownership: "SYSTEM", systemKey: { in: keys } },
+        select: { id: true, systemKey: true, _count: { select: { items: true } } },
+      }),
+      this.prisma.historicalUniverse.findMany({
+        where: { key: { in: keys } },
+        select: {
+          key: true,
+          status: true,
+          statusReasons: true,
+          publishedGeneration: { select: { validation: true } },
+        },
+      }),
+    ]);
+    const listOf = new Map(lists.map((list) => [list.systemKey, list]));
+    const stateOf = new Map(states.map((state) => [state.key, state]));
+    const locked = !viewerEntitlements(viewer).builtInContent.canUsePremium;
+    return {
+      categories: HISTORICAL_UNIVERSE_CATEGORIES.filter((category) => category !== "RESEARCH").map(
+        (category) => ({
+          key: category,
+          label: HISTORICAL_UNIVERSE_CATEGORY_LABELS[category],
+          universes: CATALOG_HISTORICAL_UNIVERSES.filter(
+            (definition) => definition.category === category,
+          )
+            .sort((left, right) => left.displayOrder - right.displayOrder)
+            .map((definition) => {
+              const list = listOf.get(definition.key);
+              const state = stateOf.get(definition.key);
+              // Publication is the only writer of a catalog universe's List, so a List with members
+              // is a published universe — the S&P 500's predates the catalog's states — and it stays
+              // available while a newer generation of it is still being validated.
+              const available = list !== undefined && list._count.items > 0;
+              const validation = state?.publishedGeneration?.validation as
+                | { publishFrom?: string | null }
+                | null
+                | undefined;
+              return {
+                key: definition.key,
+                name: maintainedUniverseOf(definition).listName,
+                description: definition.description,
+                premium: true as const,
+                locked,
+                availability: available ? ("AVAILABLE" as const) : ("UNAVAILABLE" as const),
+                listId: available ? (list?.id ?? null) : null,
+                availableFrom: available
+                  ? (publishedListFloor(definition.key, validation?.publishFrom ?? null) ??
+                    HISTORICAL_UNIVERSE_FLOOR)
+                  : null,
+                unavailableReason: available ? null : unavailableReasonOf(definition, state?.status),
+              };
+            }),
+        }),
+      ),
+    };
+  }
+
+  /**
    * A maintained universe's measured size for the collection: measured once per version of its
    * membership (see `universeMeasures`), with its last synchronization read fresh.
    */
@@ -309,7 +417,7 @@ export class StockListsService {
       readonly updatedAt: Date;
       readonly _count: { readonly items: number };
     },
-    universe: PointInTimeIndexUniverse,
+    universe: MaintainedUniverse,
   ): Promise<StockListUniverseResponse> {
     const version = [
       list.updatedAt.toISOString(),
@@ -328,7 +436,7 @@ export class StockListsService {
 
   /** When the universe's membership was last synchronized, if ever. */
   private async latestSync(
-    universe: PointInTimeIndexUniverse,
+    universe: MaintainedUniverse,
   ): Promise<Date | null> {
     const sync = await this.prisma.indexMembershipSync.findFirst({
       where: { indexKey: universe.indexKey, status: "COMPLETED" },
@@ -341,7 +449,7 @@ export class StockListsService {
   /** A maintained universe's measured size, read from its members' windows. */
   private async measureUniverse(
     listId: string,
-    universe: PointInTimeIndexUniverse,
+    universe: MaintainedUniverse,
     loaded?: readonly { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: { startDate: Date; endDate: Date | null }[] }[],
   ): Promise<StockListUniverseResponse> {
     const items =
@@ -540,6 +648,9 @@ export class StockListsService {
         });
         if (!source) {
           throw new StockListNotFoundError();
+        }
+        if (maintainedUniverse(source)) {
+          throw new MaintainedUniverseCopyError();
         }
         // A copy is ordinary content the customer owns, so the premium gate has to stand at the
         // copy: otherwise duplicating first would be the way around it (entitlements-v2 §6).

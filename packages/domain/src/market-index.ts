@@ -17,8 +17,12 @@
 import type { BuyWindowConfiguration } from "./stock-lists.js";
 import type { LocalDate } from "./stock-data.js";
 
-/** The indices whose historical membership FactorSage reconstructs. */
-export const MARKET_INDEX_KEYS = ["SP500"] as const;
+/**
+ * The indices whose historical membership FactorSage reconstructs: the S&P 500, the Nasdaq-100 (NDX,
+ * the hundred largest non-financial Nasdaq-listed companies — not every Nasdaq stock) and the Dow
+ * Jones Industrial Average (`docs/decisions/historical-universes-v1.md`).
+ */
+export const MARKET_INDEX_KEYS = ["SP500", "NASDAQ100", "DOW30"] as const;
 
 export type MarketIndexKey = (typeof MARKET_INDEX_KEYS)[number];
 
@@ -43,6 +47,12 @@ export type PointInTimeIndexUniverse = {
    * canonical dataset keeps the provider's earlier history untouched.
    */
   readonly membershipFloor: LocalDate;
+  /**
+   * How many lines the index holds on any date: its company count, plus the second share class of
+   * the companies listed twice. A reconstructed date outside the band is missing an addition or a
+   * removal the provider's change log does not record.
+   */
+  readonly expectedLines: { readonly min: number; readonly max: number };
 };
 
 export const SP500_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
@@ -56,10 +66,56 @@ export const SP500_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
     "large share of past members is missing, so results over earlier years lean toward companies " +
     "that survived.",
   membershipFloor: "1996-01-02",
+  // 500 companies; Alphabet, Fox, News Corp and others have contributed a second line.
+  expectedLines: { min: 500, max: 506 },
+};
+
+export const NASDAQ100_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
+  indexKey: "NASDAQ100",
+  listSystemKey: "nasdaq100-historical-pit",
+  listName: "Nasdaq-100 — Historical PIT",
+  listDescription:
+    "Every security that was a Nasdaq-100 constituent, each eligible to buy only while it was a " +
+    "member. Reconstructed from the data provider's index history; former constituents the " +
+    "provider holds no prices for cannot be traded and are never substituted.",
+  membershipFloor: "1996-01-02",
+  // 100 companies. Second share classes add lines: Alphabet's and Fox's now (101), and from 2014 to
+  // 2017 Liberty Global's, LiLAC's, Liberty Media's, Discovery's and Comcast's too (up to 111).
+  expectedLines: { min: 100, max: 112 },
+};
+
+export const DOW30_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
+  indexKey: "DOW30",
+  listSystemKey: "dow30-historical-pit",
+  listName: "Dow Jones 30 — Historical PIT",
+  listDescription:
+    "Every company that was one of the thirty Dow Jones Industrial Average components, each " +
+    "eligible to buy only while it was a member. Reconstructed from the data provider's index " +
+    "history, with two documented corrections where that history omits a published change.",
+  membershipFloor: "1996-01-02",
+  // Thirty companies, one line each, always.
+  expectedLines: { min: 30, max: 30 },
 };
 
 export const POINT_IN_TIME_INDEX_UNIVERSES: readonly PointInTimeIndexUniverse[] =
-  [SP500_HISTORICAL_PIT_UNIVERSE];
+  [
+    SP500_HISTORICAL_PIT_UNIVERSE,
+    NASDAQ100_HISTORICAL_PIT_UNIVERSE,
+    DOW30_HISTORICAL_PIT_UNIVERSE,
+  ];
+
+/**
+ * The indices whose resolved securities the Redis protected tier keeps resident
+ * (`docs/decisions/protected-stock-tier-v1.md` §2). Deliberately not every reconstructed index: the
+ * Dow's members are S&P 500 members already, and the Nasdaq-100's former members outside the S&P 500
+ * are a memory decision (`docs/decisions/historical-universes-v1.md` §7), not a side effect of
+ * reconstructing them. Universes derived from the S&P 500 reuse its securities and add nothing.
+ */
+export const PROTECTED_TIER_INDEX_KEYS: readonly MarketIndexKey[] = ["SP500"];
+
+export function isProtectedTierIndex(indexKey: MarketIndexKey): boolean {
+  return PROTECTED_TIER_INDEX_KEYS.includes(indexKey);
+}
 
 /** The universe a built-in List carries, by its `systemKey`; `null` for every other List. */
 export function pointInTimeIndexUniverseForList(

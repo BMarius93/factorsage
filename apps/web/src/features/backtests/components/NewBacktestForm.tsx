@@ -83,7 +83,8 @@ function describedBy(
  * What a plan without the point-in-time universe is told, before and instead of a refusal (PR-1).
  * The plans that include it are read from the entitlement matrix, never written down here.
  */
-const UNIVERSE_NOT_INCLUDED = `Backtests over the S&P 500 Historical PIT universe are part of ${premiumPlansPhrase()}.`;
+const universeNotIncluded = (name: string) =>
+  `Backtests over the ${name} universe are part of ${premiumPlansPhrase()}.`;
 
 /** The same, for any other premium built-in the plan does not include. */
 const PREMIUM_LIST_NOT_INCLUDED = `Premium lists are part of ${premiumPlansPhrase()}.`;
@@ -315,8 +316,8 @@ export function NewBacktestForm() {
     selectedList?.locked === true ||
     (chosenUniverse !== undefined && maxUniverse === 0);
   const listNotIncludedMessage =
-    chosenUniverse !== undefined
-      ? UNIVERSE_NOT_INCLUDED
+    chosenUniverse !== undefined && selectedList
+      ? universeNotIncluded(selectedList.name)
       : PREMIUM_LIST_NOT_INCLUDED;
   const universeTooLarge =
     !listNotIncluded &&

@@ -1127,6 +1127,64 @@ describe("backtests", () => {
       }
     });
 
+    it("freezes a derived universe with its key and its root index, premium on every plan below Pro", async () => {
+      const derivedKey = "dogs-of-the-dow";
+      await prisma.stockList.deleteMany({ where: { systemKey: derivedKey } });
+      const derived = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: derivedKey,
+          name: "Dogs of the Dow",
+          items: {
+            create: [
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("A")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [{ startDate: new Date("2020-01-01T00:00:00.000Z"), endDate: null }],
+                },
+              },
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("C")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2020-01-01T00:00:00.000Z"),
+                      endDate: new Date("2020-12-31T00:00:00.000Z"),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      try {
+        const run = await submit({ stockListId: derived.id });
+        const stored = await prisma.backtestRun.findUniqueOrThrow({
+          where: { id: run.id },
+          select: { snapshot: true },
+        });
+        const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+        expect(snapshot.stockList.universe).toEqual({
+          kind: "POINT_IN_TIME_INDEX",
+          indexKey: "DOW30",
+          universeKey: derivedKey,
+          peakSimultaneousMembers: 2,
+        });
+        // The List's own premium flag is not what decides: a maintained universe is premium.
+        const refused = await starter
+          .post("/backtests")
+          .send(submission({ strategyId: starterStrategyId, stockListId: derived.id }))
+          .expect(403);
+        expect(refused.body).toMatchObject({ code: "ENTITLEMENT_PREMIUM_CONTENT" });
+      } finally {
+        await prisma.backtestRun.deleteMany({ where: { stockListId: derived.id } });
+        await prisma.stockList.delete({ where: { id: derived.id } });
+      }
+    });
+
     it("holds a customer's copy of the members to the ordinary List rules", async () => {
       const copy = await prisma.stockList.create({
         data: {

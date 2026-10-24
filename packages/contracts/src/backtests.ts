@@ -1274,10 +1274,16 @@ export function backtestSnapshotVersionFor(
     : BACKTEST_SNAPSHOT_VERSION;
 }
 
-/** The point-in-time index universe a run's List carried, frozen at submission. */
+/** The maintained historical universe a run's List carried, frozen at submission. */
 export type BacktestSnapshotIndexUniverse = {
   kind: "POINT_IN_TIME_INDEX";
+  /** The root index: an index universe's own, or the one a derived universe is drawn from. */
   indexKey: string;
+  /**
+   * The derived universe's catalog key (`sp500-top100-market-cap`, `dogs-of-the-dow`, ...). Absent
+   * for an index's own membership, so those snapshots are exactly what they always were.
+   */
+  universeKey?: string;
   peakSimultaneousMembers: number;
 };
 

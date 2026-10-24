@@ -394,6 +394,60 @@ export function valuationRatioColumns(input: {
 }
 
 /**
+ * Market capitalization per session: the close on the basis the share count was observed on, times
+ * that count (`docs/decisions/historical-universes-v1.md` §5) — the quantity every ratio above
+ * divides. `NaN` exactly where the session rules leave the close and the count on bases that cannot
+ * be shown equal (rules 5, 6 and 8), where the count is missing, and for an unverified history. Rule
+ * 7 is a ratio rule — a denominator's statements must cover a possible distribution — and does not
+ * apply: a distribution moves the price, never the share count.
+ */
+export function marketCapitalizationColumn(input: {
+  timeline: ValuationTimeline;
+  dates: readonly LocalDate[];
+  closes: ArrayLike<number>;
+}): Float64Array {
+  const { timeline, dates, closes } = input;
+  const column = new Float64Array(dates.length).fill(Number.NaN);
+  if (!timeline.verified) {
+    return column;
+  }
+  for (let index = 0; index < dates.length; index += 1) {
+    const session = dates[index] as LocalDate;
+    const close = closes[index] as number;
+    if (!Number.isFinite(close) || close <= 0) {
+      continue;
+    }
+    const state = stateAt(timeline.states, session);
+    if (state?.shares === undefined || state.observedAt === undefined) {
+      continue;
+    }
+    if (state.withheldBefore !== undefined && session < state.withheldBefore) {
+      continue;
+    }
+    if (
+      timeline.forwardWindows.some(
+        (window) => session >= window.from && session <= window.to,
+      )
+    ) {
+      continue;
+    }
+    const basis = basisFactorAt({
+      session,
+      observedAt: state.observedAt,
+      events: timeline.events,
+    });
+    if (basis.kind === "WITHHELD") {
+      continue;
+    }
+    const marketCap = close * basis.factor * state.shares;
+    if (Number.isFinite(marketCap) && marketCap > 0) {
+      column[index] = marketCap;
+    }
+  }
+  return column;
+}
+
+/**
  * The calendar days a measured re-base may lie on: its date, or, measured between two reads, its
  * undated interval `(effectiveFrom, effectiveTo]`. `effectiveFrom` is the last session certainly
  * before the event (`historical-price-basis-v1.md` §8), as `basisFactorAt` reads it, so the event

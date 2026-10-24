@@ -7,6 +7,10 @@ synchronized or reconstructed (`AGENTS.md` invariant 1, now rewritten): exactly 
 S&P 500 — is reconstructed into one built-in List. Everything else about Lists, buy windows and
 backtests is unchanged.
 
+**Extended** (2026-10-24) by `historical-universes-v1.md`: the same reconstruction now also covers
+the Nasdaq-100 and the Dow, and universes derived from an index are generated, validated and
+published beside this one. This List, its floor and its disclosure are unchanged.
+
 Related records: `protected-stock-tier-v1.md` (keeping the universe resident in Redis),
 `redis-payload-codec-v1.md` (how its chunks are stored), `entitlements-v1.md` (the Pro allowance).
 

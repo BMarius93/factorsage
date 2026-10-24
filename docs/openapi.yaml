@@ -1165,6 +1165,32 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /lists/universes:
+    get:
+      tags: [Stock lists]
+      operationId: listHistoricalUniverses
+      summary: The historical universe catalog, grouped as the Lists page shows it.
+      description: |
+        Every customer-facing historical universe — the index memberships, the sectors, the market
+        cap, style and Dow strategy universes — grouped by category, with whether it is available
+        and whether the caller's plan unlocks it. Readable without a session. Metadata only: no
+        membership is read and nothing reaches the market-data provider.
+
+        `availability` is `UNAVAILABLE` ("Historical data unavailable") for a universe whose
+        point-in-time data does not exist or has not been validated, whatever the plan; `locked` is
+        true ("Requires Pro") when the caller's plan does not include premium content. Internal
+        research universes are never listed.
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The catalog.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoricalUniverseCatalog" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /lists/{listId}/duplicate:
     parameters:
       - { $ref: "#/components/parameters/ListId" }
@@ -1185,6 +1211,10 @@ paths:
         list they created. It is a new custom list, so the plan's symbol limit applies to it exactly
         as it does to `POST /lists`; a built-in's exemption from that limit does not travel with a
         copy.
+
+        A maintained historical universe (a List whose detail carries `universe`) cannot be copied
+        and answers `409`, whatever the caller's plan: a copy would stop being maintained, and so
+        point-in-time, and would outlive the plan that unlocks the universe.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
       requestBody:
@@ -1207,6 +1237,11 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/EntitlementDenied" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: The source is a maintained historical universe, which is never copied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /lists/{listId}/items:
@@ -4905,18 +4940,77 @@ components:
         compliance: { $ref: "#/components/schemas/StockListCompliance" }
         universe: { $ref: "#/components/schemas/StockListUniverse" }
 
+    HistoricalUniverseCatalog:
+      type: object
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          items:
+            type: object
+            required: [key, label, universes]
+            properties:
+              key: { type: string, example: MARKET_CAPITALIZATION }
+              label: { type: string, example: Market Cap }
+              universes:
+                type: array
+                items: { $ref: "#/components/schemas/HistoricalUniverseCatalogEntry" }
+
+    HistoricalUniverseCatalogEntry:
+      type: object
+      required:
+        [
+          key,
+          name,
+          description,
+          premium,
+          locked,
+          availability,
+          listId,
+          availableFrom,
+          unavailableReason,
+        ]
+      properties:
+        key: { type: string, example: sp500-top100-market-cap }
+        name: { type: string, example: S&P 500 Top 100 by Market Cap }
+        description: { type: string }
+        premium: { type: boolean, enum: [true] }
+        locked:
+          type: boolean
+          description: True when the caller's plan does not include premium content.
+        availability: { type: string, enum: [AVAILABLE, UNAVAILABLE] }
+        listId:
+          description: The built-in List carrying the universe, once published.
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        availableFrom:
+          description: The first date its List holds members.
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        unavailableReason:
+          oneOf:
+            - { type: string }
+            - { type: "null" }
+
     StockListUniverse:
       type: object
       description: >-
-        Present only on the built-in point-in-time index universe (`systemKey`
-        `sp500-historical-pit`). Its membership is maintained from the index's historical changes
-        and cannot be edited through the List routes (`canEdit` is false for every caller). A
-        backtest over it is measured by the most members it held at once during the run's period,
-        against `backtests.maxIndexUniverseConstituents`, not by its distinct stock count.
+        Present only on a built-in maintained historical universe: an index's own point-in-time
+        membership (`sp500-historical-pit`, `nasdaq100-historical-pit`, `dow30-historical-pit`) or
+        a universe derived from one (`sp500-top100-market-cap`, `dogs-of-the-dow`, ...). Its
+        membership is maintained by its generator and cannot be edited through the List routes
+        (`canEdit` is false for every caller) or duplicated. A backtest over it is measured by the
+        most members it held at once during the run's period, against
+        `backtests.maxIndexUniverseConstituents`, not by its distinct stock count.
       required:
         [
           kind,
           indexKey,
+          universeKey,
+          category,
+          derived,
           distinctSecurities,
           peakSimultaneousMembers,
           currentMembers,
@@ -4925,7 +5019,24 @@ components:
         ]
       properties:
         kind: { type: string, enum: [POINT_IN_TIME_INDEX] }
-        indexKey: { type: string, example: SP500 }
+        indexKey:
+          { type: string, example: SP500, description: The root index the universe is drawn from. }
+        universeKey:
+          { type: string, example: sp500-top100-market-cap, description: The List's systemKey. }
+        category:
+          type: string
+          enum:
+            [
+              MARKET_INDICES,
+              SP500_SECTORS,
+              MARKET_CAPITALIZATION,
+              INVESTMENT_STYLES,
+              DOW_STRATEGIES,
+              RESEARCH,
+            ]
+        derived:
+          type: boolean
+          description: False for an index's own membership; true for a ranking drawn from one.
         distinctSecurities:
           type: integer
           minimum: 0

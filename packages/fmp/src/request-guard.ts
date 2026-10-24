@@ -163,6 +163,23 @@ export const FMP_ENDPOINT_CLASSES: ReadonlyMap<string, FmpEndpointClass> =
       "historical-sp500-constituent",
       { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
     ],
+    [
+      "nasdaq-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    [
+      "historical-nasdaq-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    [
+      "dowjones-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    [
+      "historical-dowjones-constituent",
+      { subject: "DIRECTORY", dataset: "INDEX_MEMBERSHIP" },
+    ],
+    ["dividends", { subject: "SECURITY", dataset: "DIVIDENDS" }],
     ["symbol-change", { subject: "DIRECTORY", dataset: "SYMBOL_HISTORY" }],
     [
       "delisted-companies",

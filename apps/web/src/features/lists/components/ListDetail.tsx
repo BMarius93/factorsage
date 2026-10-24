@@ -572,10 +572,22 @@ export function ListDetail({ listId }: ListDetailProps) {
         {detail.universe ? (
           // Why this built-in cannot be edited, and what its membership means for a backtest.
           <p className={styles.universeNotice} data-testid="universe-notice">
-            Membership is reconstructed from the index's historical changes
-            since {formatMembershipDate(detail.universe.membershipFloor)} and
-            maintained automatically: {detail.universe.currentMembers} current
-            members and{" "}
+            {detail.universe.derived ? (
+              // A derived universe starts at its own validated reliable period, not the index's floor.
+              <>
+                Selected at each reconstitution from the index&apos;s
+                point-in-time membership, using only data available on that
+                date, and maintained automatically:{" "}
+              </>
+            ) : (
+              <>
+                Membership is reconstructed from the index&apos;s historical
+                changes since{" "}
+                {formatMembershipDate(detail.universe.membershipFloor)} and
+                maintained automatically:{" "}
+              </>
+            )}
+            {detail.universe.currentMembers} current members and{" "}
             {detail.universe.distinctSecurities -
               detail.universe.currentMembers}{" "}
             former ones. A backtest buys each stock only while it was a member.

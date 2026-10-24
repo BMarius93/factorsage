@@ -170,11 +170,15 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
   },
   {
     operation:
-      "S&P 500 point-in-time universe: membership, identity and resolution (pnpm data:index-universe)",
+      "Point-in-time index universes (S&P 500, Nasdaq-100, Dow): membership, identity and resolution (pnpm data:index-universe)",
     classification: "WIDENS_UNIVERSE",
     endpoints: [
       "sp500-constituent",
       "historical-sp500-constituent",
+      "nasdaq-constituent",
+      "historical-nasdaq-constituent",
+      "dowjones-constituent",
+      "historical-dowjones-constituent",
       "symbol-change",
       "delisted-companies",
       "historical-market-capitalization",
@@ -183,6 +187,16 @@ export const LIVE_FMP_EXCLUSIONS: readonly LiveFmpExclusion[] = [
       "reconstructs a whole index's membership from the provider's directories and probes every " +
       "constituent's candidate symbols, market capitalization included — never only the approved " +
       "securities; it runs only from its own guarded wrapper (scripts/cloud/fmp-index-universe.sh)",
+  },
+  {
+    operation:
+      "Dividend histories of an index universe's securities (pnpm data:index-universe -- dividends)",
+    classification: "WIDENS_UNIVERSE",
+    endpoints: ["dividends"],
+    reason:
+      "read only by the historical universes' dividend rankings (docs/decisions/historical-universes-v1.md " +
+      "§5.3), for every security of an index at once, never by a product surface; it runs only from " +
+      "its own guarded wrapper (scripts/cloud/fmp-index-universe.sh)",
   },
   {
     operation: "Institutional holdings (Form 13F)",

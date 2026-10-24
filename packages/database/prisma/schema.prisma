@@ -326,8 +326,8 @@ model LegalRequest {
 }
 
 model Security {
-  id                  String                        @id @default(uuid())
-  providerSymbol      String                        @unique
+  id                  String                               @id @default(uuid())
+  providerSymbol      String                               @unique
   symbol              String
   name                String
   exchangeCode        String
@@ -339,12 +339,12 @@ model Security {
   country             String?
   sector              String?
   industry            String?
-  ipoDate             DateTime?                     @db.Date
+  ipoDate             DateTime?                            @db.Date
   type                SecurityType
   isAdr               Boolean
   isActivelyTrading   Boolean
-  createdAt           DateTime                      @default(now())
-  updatedAt           DateTime                      @updatedAt
+  createdAt           DateTime                             @default(now())
+  updatedAt           DateTime                             @updatedAt
   profile             SecurityProfile?
   datasetStates       StockDatasetState[]
   datasetCoverage     StockDatasetCoverage[]
@@ -365,8 +365,11 @@ model Security {
   priceBasis          SecurityPriceBasis?
   priceBasisEvents    PriceBasisEvent[]
   stockSplits         StockSplit[]
+  dividendEvents      DividendEvent[]
   indexConstituents   IndexConstituent[]
   indexIngestions     IndexUniverseIngestion[]
+  universeSelections  HistoricalUniverseSelection[]
+  universePeriods     HistoricalUniverseMembershipPeriod[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -651,6 +654,34 @@ model PriceBasisEvent {
 /// `numerator : denominator` is the share ratio and the factor the provider divides earlier closes
 /// by; `label` is the provider's own. Incomplete, and it lists announced events before their date:
 /// only the valuation ratios' price-basis rules read it (`docs/decisions/valuation-ratios-v1.md`).
+/// One dividend as the provider records it (`docs/decisions/historical-universes-v1.md` §5).
+///
+/// `exDate` is the first session the shares trade without it; `declarationDate` is when it was
+/// announced, absent for some older rows. A dividend is known to an investor on its declaration date,
+/// and certainly on its ex-date — the latest of the dates it was public — so a point-in-time read
+/// counts a dividend on a date only when its ex-date (or its declaration) is on or before it.
+/// `amount` is as declared; `adjustedAmount` is split-adjusted onto the basis of the stored closes.
+/// Content-addressed, like the change log: a corrected row is a new row and the old one is dropped
+/// by the next synchronization of the security, which replaces the security's rows whole.
+model DividendEvent {
+  id              String    @id @default(uuid())
+  securityId      String
+  exDate          DateTime  @db.Date
+  recordDate      DateTime? @db.Date
+  paymentDate     DateTime? @db.Date
+  declarationDate DateTime? @db.Date
+  amount          Decimal   @db.Decimal(24, 12)
+  adjustedAmount  Decimal   @db.Decimal(24, 12)
+  /// The provider's label: `Quarterly`, `Monthly`, `Semi-Annual`, `Annual`, `Irregular`, … or null.
+  frequency       String?
+  contentHash     String
+  observedAt      DateTime  @default(now())
+  security        Security  @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, contentHash])
+  @@index([securityId, exDate])
+}
+
 model StockSplit {
   id          String   @id @default(uuid())
   securityId  String
@@ -2252,6 +2283,8 @@ model CongressTrade {
 /// An index whose historical membership FactorSage reconstructs.
 enum MarketIndexKey {
   SP500
+  NASDAQ100
+  DOW30
 }
 
 /// How a reconstructed membership period's boundaries are known. `END_UNKNOWN` periods are never
@@ -2433,4 +2466,103 @@ model IndexUniverseIngestion {
 
   @@id([indexKey, securityId])
   @@index([indexKey, status])
+}
+
+// ---------------------------------------------------------------------------
+// Historical universes (`docs/decisions/historical-universes-v1.md`)
+// ---------------------------------------------------------------------------
+
+enum HistoricalUniverseStatus {
+  DRAFT
+  VALIDATED
+  PUBLISHED
+  BLOCKED
+}
+
+enum HistoricalUniverseGenerationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// The lifecycle of one universe of the catalog in `@intrinsic/domain` `historical-universes.ts`,
+/// keyed by its List `systemKey`. The definition lives in code; this row is the state that moves:
+/// which generation is the latest, which one the List carries, and why a universe is blocked.
+model HistoricalUniverse {
+  key                   String                        @id
+  status                HistoricalUniverseStatus      @default(DRAFT)
+  methodologyVersion    Int
+  latestGenerationId    String?                       @unique
+  publishedGenerationId String?                       @unique
+  publishedAt           DateTime?
+  /// Why the universe is `BLOCKED` or still `DRAFT`: codes and sentences, never provider payloads.
+  statusReasons         Json?
+  updatedAt             DateTime                      @updatedAt
+  latestGeneration      HistoricalUniverseGeneration? @relation("LatestGeneration", fields: [latestGenerationId], references: [id], onDelete: SetNull)
+  publishedGeneration   HistoricalUniverseGeneration? @relation("PublishedGeneration", fields: [publishedGenerationId], references: [id], onDelete: Restrict)
+}
+
+/// One generation of a derived universe: every reconstitution's selection, computed from PostgreSQL
+/// alone, with the digest of everything it read. Append-only; a generation whose digest equals the
+/// latest completed one is not written again (idempotent regeneration).
+model HistoricalUniverseGeneration {
+  id                  String                               @id @default(uuid())
+  universeKey         String
+  methodologyVersion  Int
+  engineVersion       Int
+  status              HistoricalUniverseGenerationStatus   @default(RUNNING)
+  /// Digest of the definition, the parent membership and every input value the selections read.
+  inputDigest         String?
+  /// Digest of the selections themselves: equal digests are equal universes.
+  outputDigest        String?
+  startedAt           DateTime                             @default(now())
+  completedAt         DateTime?
+  /// First and last reconstitution dates the generation covers.
+  firstReconstitution DateTime?                            @db.Date
+  lastReconstitution  DateTime?                            @db.Date
+  /// Counts, distinct securities, peak simultaneous members.
+  summary             Json?
+  /// Per reconstitution: candidates, candidates with a value, selected against expected.
+  diagnostics         Json?
+  /// The validation verdict and every criterion's measurement.
+  validation          Json?
+  error               String?
+  selections          HistoricalUniverseSelection[]
+  periods             HistoricalUniverseMembershipPeriod[]
+  latestOf            HistoricalUniverse?                  @relation("LatestGeneration")
+  publishedOf         HistoricalUniverse?                  @relation("PublishedGeneration")
+
+  @@index([universeKey, startedAt])
+}
+
+/// One security selected on one reconstitution date, with its rank and the value it was ranked by.
+model HistoricalUniverseSelection {
+  generationId       String
+  reconstitutionDate DateTime                     @db.Date
+  securityId         String
+  /// 1 is the first selected.
+  rank               Int
+  metricValue        Decimal?                     @db.Decimal(30, 12)
+  /// The first session the selection is in effect.
+  effectiveDate      DateTime                     @db.Date
+  generation         HistoricalUniverseGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  security           Security                     @relation(fields: [securityId], references: [id], onDelete: Restrict)
+
+  @@id([generationId, reconstitutionDate, securityId])
+  @@index([generationId, securityId])
+}
+
+/// A generation's membership as the List carries it: inclusive calendar ranges, the selections
+/// merged across consecutive reconstitutions and clipped to the parent universe's own membership.
+model HistoricalUniverseMembershipPeriod {
+  id           String                       @id @default(uuid())
+  generationId String
+  securityId   String
+  startDate    DateTime                     @db.Date
+  /// Null: still a member.
+  endDate      DateTime?                    @db.Date
+  generation   HistoricalUniverseGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  security     Security                     @relation(fields: [securityId], references: [id], onDelete: Restrict)
+
+  @@index([generationId, securityId])
 }
