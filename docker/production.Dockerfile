@@ -4,11 +4,12 @@
 # target per process — `api`, `worker`, `web` — plus `migrate`, the one-shot schema job a deploy runs
 # before anything else starts.
 #
-#   docker build -f docker/production.Dockerfile --target api    -t factorsage/api:$REV .
-#   docker build -f docker/production.Dockerfile --target worker -t factorsage/worker:$REV .
-#   docker build -f docker/production.Dockerfile --target web    -t factorsage/web:$REV \
-#     --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.factorsage.example .
-#   docker build -f docker/production.Dockerfile --target migrate -t factorsage/migrate:$REV .
+#   docker build -f docker/production.Dockerfile --target api     --build-arg BUILD_WEB=false -t factorsage/api:$REV .
+#   docker build -f docker/production.Dockerfile --target worker  --build-arg BUILD_WEB=false -t factorsage/worker:$REV .
+#   docker build -f docker/production.Dockerfile --target migrate --build-arg BUILD_WEB=false -t factorsage/migrate:$REV .
+#   docker build -f docker/production.Dockerfile --target web     -t factorsage/web:$REV \
+#     --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.factorsage.example \
+#     --build-arg NEXT_PUBLIC_LEGAL_ENTITY_NAME=… (and the other nine NEXT_PUBLIC_LEGAL_* facts) .
 #
 # What differs from the development images in `docker/*.Dockerfile`:
 # - the runtime stages run as the unprivileged `node` user and start `node` directly — never pnpm —
@@ -45,15 +46,30 @@ RUN --mount=type=secret,id=build_ca,required=false \
     if [ -s /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; \
     pnpm db:generate
 
-# The public API URL is compiled into the browser bundle (see docker/web.Dockerfile); the web target
-# refuses to build a release without one.
+RUN pnpm --filter "@intrinsic/api..." --filter "@intrinsic/worker..." build
+
+# The web app comes last, so every layer above is shared by all four targets whatever the web's
+# arguments; the api, worker and migrate images skip it with `--build-arg BUILD_WEB=false`.
+# A release build (the default) compiles the public API URL into the browser bundle and refuses a
+# missing, non-https or loopback one (apps/web/src/lib/release-build.ts). It also refuses draft
+# legal pages and unresolved operator facts (apps/web/src/lib/legal-release.ts; `pnpm legal:check`
+# lists what is outstanding), so the ten facts are build arguments, read by `next build` only when
+# passed. Like every NEXT_PUBLIC_* value they are public: never pass a secret here.
+ARG BUILD_WEB=true
 ARG NEXT_PUBLIC_API_BASE_URL=""
 ARG FACTORSAGE_RELEASE_BUILD=true
-ARG BUILD_WEB=true
+ARG NEXT_PUBLIC_LEGAL_ENTITY_NAME
+ARG NEXT_PUBLIC_LEGAL_REGISTERED_ADDRESS
+ARG NEXT_PUBLIC_LEGAL_REGISTRATION_IDENTIFIER
+ARG NEXT_PUBLIC_LEGAL_TAX_IDENTIFIER
+ARG NEXT_PUBLIC_LEGAL_SUPPORT_CONTACT
+ARG NEXT_PUBLIC_LEGAL_PRIVACY_CONTACT
+ARG NEXT_PUBLIC_LEGAL_COMPLAINTS_CONTACT
+ARG NEXT_PUBLIC_LEGAL_SUPERVISORY_AUTHORITY
+ARG NEXT_PUBLIC_LEGAL_GOVERNING_LAW
+ARG NEXT_PUBLIC_LEGAL_ADR_INFORMATION
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
     FACTORSAGE_RELEASE_BUILD=$FACTORSAGE_RELEASE_BUILD
-
-RUN pnpm --filter "@intrinsic/api..." --filter "@intrinsic/worker..." build
 # The web build downloads its fonts (next/font), so it may need the same optional build CA.
 RUN --mount=type=secret,id=build_ca,required=false \
     if [ -s /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; \

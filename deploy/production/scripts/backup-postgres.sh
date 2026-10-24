@@ -11,6 +11,8 @@ set -euo pipefail
 
 REPO=${FACTORSAGE_REPO:-/opt/factorsage}
 COMPOSE=(docker compose --env-file /etc/factorsage/compose.env -f "$REPO/deploy/production/docker-compose.yml")
+# The host directory compose mounts at /backups: compose.env's BACKUP_DIR, as docker-compose.yml reads it.
+BACKUP_DIR=${BACKUP_DIR:-$(sed -n 's/^BACKUP_DIR=//p' /etc/factorsage/compose.env 2>/dev/null)}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/factorsage}
 RETAIN_DAYS=${RETAIN_DAYS:-14}
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)

@@ -13,7 +13,10 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$REPO/deploy/production/docke
 
 sed -i "s/^RELEASE=.*/RELEASE=$RELEASE/" "$ENV_FILE"
 "${COMPOSE[@]}" pull web api worker migrate
-# A backup first: a migration is the one deploy step that cannot be rolled back by redeploying.
+# A backup first: a migration is the one deploy step that cannot be rolled back by redeploying. The
+# database is started (a no-op when it runs) so the first deploy backs up its empty database rather
+# than failing on a container that does not exist yet.
+"${COMPOSE[@]}" up -d --wait postgres
 "$REPO/deploy/production/scripts/backup-postgres.sh"
 "${COMPOSE[@]}" up -d --remove-orphans --wait
 "${COMPOSE[@]}" ps

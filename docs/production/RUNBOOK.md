@@ -4,8 +4,10 @@ How to provision, deploy, operate, back up and recover the single-host productio
 `deploy/production/`. The architecture and its sizing are in `architecture.md`; why each number is
 what it is, in `benchmarks.md` and `capacity-model.md`.
 
-Nothing here has been executed against real production infrastructure: the stack was built and
-smoke-tested in a development container (`PRODUCTION-READINESS-REPORT.md` §E says exactly what was).
+Nothing here has been executed against real production infrastructure. On a 4 vCPU development
+machine the four images were built and this stack was deployed with `scripts/deploy.sh` — a first
+deploy and a re-deploy — then checked end to end (`benchmark-results/compose-smoke.log`;
+`PRODUCTION-READINESS-REPORT.md` §E says exactly what was and was not).
 
 ## 1. Provision the host
 
@@ -48,15 +50,20 @@ CI builds the images from one commit and pushes them tagged with the release:
 ```bash
 REV=$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)
 for target in api worker migrate; do
-  docker build -f docker/production.Dockerfile --target $target -t $REGISTRY/$target:$REV .
+  docker build -f docker/production.Dockerfile --target $target --build-arg BUILD_WEB=false \
+    -t $REGISTRY/$target:$REV .
 done
+# Plus one --build-arg per NEXT_PUBLIC_LEGAL_* fact (ten; docs/legal/owner-inputs-and-review.md).
 docker build -f docker/production.Dockerfile --target web -t $REGISTRY/web:$REV \
-  --build-arg NEXT_PUBLIC_API_BASE_URL=https://$API_DOMAIN .
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://$API_DOMAIN \
+  --build-arg NEXT_PUBLIC_LEGAL_ENTITY_NAME="…" .
 docker push $REGISTRY/{api,worker,migrate,web}:$REV
 ```
 
-The web image compiles the public API URL in; a release build refuses a missing, non-https or
-loopback URL.
+The web image compiles the public API URL and the legal operator facts in. A release build refuses
+a missing, non-https or loopback URL, an unresolved operator fact and any legal document still
+marked `DRAFT`: `pnpm legal:check` lists what is outstanding (16 items on 2026-10-24 — ten facts,
+six draft documents), and until it passes no release web image can be built.
 
 ## 4. Deploy
 
@@ -108,6 +115,8 @@ public URLs.
 - **Nightly logical dump**: `scripts/backup-postgres.sh` from a systemd timer (02:30 UTC), custom
   format, zstd, verified with `pg_restore --list`, copied off-host with `rclone` when
   `BACKUP_REMOTE` is set, 14 days retained locally. The deploy script takes one before every release.
+  Measured on 4 vCPU (`benchmark-results.md` §9): a 24.4 GB database dumps in 8.2 min to 3.2 GB, so
+  size the off-host store for fourteen dumps of about a seventh of the database each.
 - **Point-in-time recovery** (recommended before launch, not built here): `wal_level = replica` is
   already set; add WAL-G or pgBackRest archiving to an object store for an RPO of minutes instead of
   a day.
@@ -128,6 +137,9 @@ To recover: stop `api` and `worker`, restore into a new database, point `DATABAS
 `api.env`, `worker.env` and `migrate.env` at it, `docker compose up -d`. Then flush Redis
 (`docker compose exec redis redis-cli -a … FLUSHALL`) — its projections describe the old database —
 and run `protect` for the protected tier. Record the drill's duration: it is the recovery time.
+Measured on 4 vCPU: a 21.5 M-row table (4.0 GB) restored in 65 s with four jobs; a 24 GB database
+≈ 7 min at that rate (an estimate), then `protect` rebuilds the protected tier in ≈ 15 min while
+the application keeps serving, more slowly, from PostgreSQL.
 
 ## 8. Incidents
 
