@@ -44,19 +44,27 @@ compliant. A customer sees a built-in list read-only; an administrator gets the 
 without a delete action. The browser UI is presentation only — the API/service layer is the
 authorization authority.
 
-### The maintained point-in-time universe
+### The maintained historical universes
 
-One built-in list is not edited by anybody: **S&P 500 — Historical PIT** (`systemKey`
-`sp500-historical-pit`, `docs/decisions/sp500-historical-pit-v1.md`). It is a projection of the
-canonical index membership — every security that was an S&P 500 constituent since 1996, each with
-CUSTOM buy windows exactly as long as its memberships — rewritten whole by
-`pnpm data:index-universe -- project`. `canEdit` is `false` for every caller, administrators
-included, and every List write answers `403` `SYSTEM_CONTENT_READ_ONLY` (the
-`SystemContentMaintainedError`). Its summary and detail carry a `universe` object: the distinct
-securities, the most members it held on one date, the current members, the membership floor and
-when the membership was last synchronized. Duplicating it gives an ordinary list held to the
-ordinary limits (734 members exceed every plan's 100-stock limit, so the copy is refused for
-customers).
+Some built-in lists are not edited by anybody: the **historical universes**
+(`docs/decisions/historical-universes-v1.md`) — the index memberships (**S&P 500 — Historical PIT**,
+`sp500-historical-pit`, `docs/decisions/sp500-historical-pit-v1.md`; Nasdaq-100; Dow Jones 30) and
+the universes derived from them (Top 100/250 by market cap, Growth, Value, High Dividend, Top 50
+Momentum, Top 100 by Liquidity, Dogs and Small Dogs of the Dow). Each is a projection — CUSTOM buy
+windows exactly as long as its memberships — rewritten whole by its writer (`index-universe project`
+for the S&P 500, `historical-universes publish` for the rest). `canEdit` is `false` for every caller,
+administrators included, and every List write answers `403` `SYSTEM_CONTENT_READ_ONLY` (the
+`SystemContentMaintainedError`). Its summary and detail carry a `universe` object: the root index,
+the universe key and category, whether it is derived, the distinct securities, the most members it
+held on one date, the current members, the floor and when the root membership was last
+synchronized. **It is never duplicated** (`409`, every plan): a copy would stop being maintained and
+would outlive the plan that unlocks it.
+
+`GET /lists/universes` is the catalog: every customer-facing universe by category with
+`availability` (`AVAILABLE` with its `listId`, or `UNAVAILABLE` — "Historical data unavailable",
+which no plan changes, e.g. the eleven sectors) and `locked` ("Requires Pro"). The Lists page shows
+the universes from it, grouped, with a lock and a "Pro" label where the plan lacks premium content;
+internal research universes are never listed.
 
 ### Duplicating a list
 
