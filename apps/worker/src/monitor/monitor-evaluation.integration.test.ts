@@ -1714,10 +1714,17 @@ describe("the Monitor EOD evaluation on PostgreSQL", () => {
       const original = await prisma.monitorScanSchedule.findUnique({
         where: { id },
       });
+      // Start from no recorded session: a stack that ran against this database (the hermetic E2E
+      // stack shares it) may have recorded a newer one, which this test must not depend on. The
+      // original row is restored below.
       await prisma.monitorScanSchedule.upsert({
         where: { id },
         create: { id },
-        update: {},
+        update: {
+          latestSession: null,
+          latestSessionCalendar: null,
+          latestSessionAt: null,
+        },
       });
       try {
         await real.recordExpectedSession(
