@@ -1,0 +1,86 @@
+{"component":"index-universe","event":"index-universe.started","command":"protect","indexKey":"SP500","horizon":{"floor":"1996-01-02","asOf":"2026-10-24"},"scope":0,"timestamp":"2026-10-24T00:38:34.391Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.started","indexKey":"SP500","securities":735,"alreadyResident":184,"projectedBytes":656236592,"dryRun":false,"timestamp":"2026-10-24T00:38:34.775Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":50,"total":735,"published":0,"alreadyResident":50,"elapsedMs":457,"timestamp":"2026-10-24T00:38:34.850Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":100,"total":735,"published":0,"alreadyResident":100,"elapsedMs":493,"timestamp":"2026-10-24T00:38:34.885Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":150,"total":735,"published":0,"alreadyResident":150,"elapsedMs":532,"timestamp":"2026-10-24T00:38:34.924Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"stock-data.protected-tier.eligibility-loaded","securities":735,"added":735,"removed":0,"durationMs":6,"timestamp":"2026-10-24T00:39:02.097Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":200,"total":735,"published":16,"alreadyResident":184,"elapsedMs":48720,"timestamp":"2026-10-24T00:39:23.115Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":250,"total":735,"published":66,"alreadyResident":184,"elapsedMs":113840,"timestamp":"2026-10-24T00:40:28.233Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":300,"total":735,"published":116,"alreadyResident":184,"elapsedMs":173593,"timestamp":"2026-10-24T00:41:27.985Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":350,"total":735,"published":166,"alreadyResident":184,"elapsedMs":239934,"timestamp":"2026-10-24T00:42:34.330Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":400,"total":735,"published":216,"alreadyResident":184,"elapsedMs":300532,"timestamp":"2026-10-24T00:43:34.927Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":450,"total":735,"published":266,"alreadyResident":184,"elapsedMs":367631,"timestamp":"2026-10-24T00:44:42.023Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":500,"total":735,"published":316,"alreadyResident":184,"elapsedMs":430863,"timestamp":"2026-10-24T00:45:45.260Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":550,"total":735,"published":366,"alreadyResident":184,"elapsedMs":496810,"timestamp":"2026-10-24T00:46:51.203Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":600,"total":735,"published":416,"alreadyResident":184,"elapsedMs":561196,"timestamp":"2026-10-24T00:47:55.589Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":650,"total":735,"published":466,"alreadyResident":184,"elapsedMs":629667,"timestamp":"2026-10-24T00:49:04.059Z","level":"info","service":"api","environment":"development"}
+{"component":"index-universe","event":"index.protect.progress","done":700,"total":735,"published":516,"alreadyResident":184,"elapsedMs":700694,"timestamp":"2026-10-24T00:50:15.093Z","level":"info","service":"api","environment":"development"}
+{
+  "indexKey": "SP500",
+  "designation": {
+    "added": 0,
+    "removed": 0,
+    "designated": 735
+  },
+  "outcomes": {
+    "published": 551,
+    "alreadyResident": 184,
+    "refused": {},
+    "failed": []
+  },
+  "verification": {
+    "resident": 735,
+    "notResident": []
+  },
+  "memory": {
+    "before": {
+      "usedMemoryBytes": 198257944,
+      "maxMemoryBytes": 0,
+      "maxMemoryPolicy": "noeviction",
+      "keys": 13445
+    },
+    "after": {
+      "usedMemoryBytes": 775520504,
+      "maxMemoryBytes": 0,
+      "maxMemoryPolicy": "noeviction",
+      "keys": 53656
+    },
+    "tier": {
+      "securities": 735,
+      "keys": 53655,
+      "bytes": 769641648,
+      "byFamily": {
+        "keys": {
+          "keys": 735,
+          "bytes": 7139840
+        },
+        "prices:1D": {
+          "keys": 25725,
+          "bytes": 210017176
+        },
+        "daily-state:v2": {
+          "keys": 25725,
+          "bytes": 551673192
+        },
+        "security": {
+          "keys": 735,
+          "bytes": 346920
+        },
+        "manifest": {
+          "keys": 735,
+          "bytes": 464520
+        }
+      },
+      "perSecurityBytes": {
+        "mean": 1047131,
+        "p50": 1022800,
+        "p95": 1193040,
+        "max": 1205328
+      }
+    }
+  },
+  "providerRequests": 0,
+  "durationMs": 751914,
+  "stoppedEarly": false
+}
+{"component":"index-universe","event":"index-universe.completed","command":"protect","durationMs":751916,"guard":{"sent":0,"authorized":0,"budget":1,"byEndpoint":{},"refusals":[],"closed":false},"timestamp":"2026-10-24T00:51:06.307Z","level":"info","service":"api","environment":"development"}

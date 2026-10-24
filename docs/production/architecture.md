@@ -64,14 +64,15 @@ documented architecture (`AGENTS.md` invariant 14).
 On the 4 vCPU / 16 GB development container, synthetic 34-year histories (the worst case per
 security), `BACKTEST_NON_RESIDENT_FRAME_READ=STORE` (`benchmark-results.md` §1–§4):
 
-| Resource                              | Measured                                                                                                                                                                                                                                                                          |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CPU per executing backtest            | **one core, fully**: a run is single-threaded and CPU-bound once its data is resident; four 1,000-security runs at once kept the machine 97 % busy (`I-warm-mixed-shared`)                                                                                                        |
-| Backtest child memory                 | 0.3 GB idle or small; **0.5 GB** executing a warm 1,000-security run; 2.0–2.1 GB while preparation rebuilds ~1,000 securities into Redis; **3.3–3.4 GB** while it hydrates first-time securities from the provider (2 GB V8 heap; 3.7 GB with a 3 GB heap)                        |
-| Four runs at once                     | four 1,000-security runs warm: 157 s each, 1.9 GB across the four children; 750 + 750 + 1,000 + 1,000 cold (Redis empty): 21.3 min, 6.6 GB; the same four hydrating 400 first-time securities: 18.2 min, **11.9 GB** — the high-water mark, with 725 MB left on the 16 GB machine |
-| Redis                                 | **1.30 GB** `used_memory` with both tiers full (735 protected + 500 LRU, 1.05 MB per synthetic security; real histories 0.74 MB → ≈0.95 GB); snapshot copy-on-write 5 MB, 14 s                                                                                                    |
-| PostgreSQL                            | ≤ 34 connections, ≤ 9 active; 34 CPU-seconds and 8.3 GB of block reads in a 21-minute cold four-way run; ≤ 0.7 GB of temp files per run; ≈ 8.5 MB of database per 34-year security                                                                                                |
-| Interactive API beside four backtests | `benchmark-results.md` §6                                                                                                                                                                                                                                                         |
+| Resource                              | Measured                                                                                                                                                                                                                                                                            |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CPU per executing backtest            | **one core, fully**: a run is single-threaded and CPU-bound once its data is resident; four 1,000-security runs at once kept the machine 97 % busy (`I-warm-mixed-shared`)                                                                                                          |
+| Backtest child memory                 | 0.3 GB idle or small; **0.5 GB** executing a warm 1,000-security run; 2.0–2.1 GB while preparation rebuilds ~1,000 securities into Redis; **3.3–3.4 GB** while it hydrates first-time securities from the provider (2 GB V8 heap; 3.7 GB with a 3 GB heap)                          |
+| Four runs at once                     | four 1,000-security runs warm: 157 s each, 1.9 GB across the four children; 750 + 750 + 1,000 + 1,000 cold (Redis empty): 21.3 min, 6.6 GB; the same four hydrating 400 first-time securities: 18.2 min, **11.9 GB** — the high-water mark, with 725 MB left on the 16 GB machine   |
+| Redis                                 | **1.30 GB** `used_memory` with both tiers full (735 protected + 500 LRU, 1.05 MB per synthetic security; real histories 0.74 MB → ≈0.95 GB); snapshot copy-on-write 5 MB, 14 s                                                                                                      |
+| PostgreSQL                            | ≤ 34 connections, ≤ 9 active; 34 CPU-seconds and 8.3 GB of block reads in a 21-minute cold four-way run; ≤ 0.7 GB of temp files per run; ≈ 8.5 MB of database per 34-year security                                                                                                  |
+| Monitor end-of-day path               | 300 Monitors / 9,000 members over 500 watched securities: EOD preparation 253–258 s and Monitor pass 19–20 s per session alone, ~1.5× both beside four backtests (same CPU time, waiting for a core); 2.0 GB for the benchmark's one process doing both (`benchmark-results.md` §7) |
+| Interactive API beside four backtests | `benchmark-results.md` §6                                                                                                                                                                                                                                                           |
 
 ### 3.2 The reference host
 
@@ -82,11 +83,15 @@ security), `BACKTEST_NON_RESIDENT_FRAME_READ=STORE` (`benchmark-results.md` §1�
   whose combined load beside four backtests is measured in `benchmark-results.md` §6–§7. Dedicated
   (not shared) vCPUs, because a backtest holds its core for minutes at a time. On a 4 vCPU host the
   four backtests take every core; there, run `BACKTEST_GLOBAL_MAX_RUNNING=2`.
-- **Memory.** The measured simultaneous worst case — four runs hydrating first-time securities —
-  is ≈ 13 GB of workers (11.9 GB measured for the four backtest children, plus the other three),
-  1.3 GB of Redis and PostgreSQL's 2.5 GB of shared buffers: ≈ 17 GB, leaving the rest to the page
-  cache. The compose limits below sum to 31.3 GB; they are ceilings, not reservations. 16 GB, the
-  benchmark machine, ran that worst case with 725 MB to spare — too little for production.
+- **Memory** is the tightest resource. The measured worst case is four runs hydrating first-time
+  securities at once — 11.9 GB for the four backtest children — and, if it coincides with the
+  session's end-of-day preparation, up to ~4 GB more for the Monitor and stock-EOD children (their
+  benchmark's one process peaked at 2.0 GB): ≈ 16 GB of workers, plus 1.3 GB of Redis and
+  PostgreSQL's 2.5 GB of shared buffers — ≈ 20 GB, leaving ~10 GB of page cache. The compose limits
+  below sum to 31.3 GB; they are ceilings, not reservations. 16 GB, the benchmark machine, ran the
+  four-way hydration with 725 MB to spare — too little for production. If the worker's memory
+  reaches 80 % of its limit in production (`RUNBOOK.md` §5), move to a 64 GB host (Hetzner CCX43)
+  or lower `BACKTEST_FRAME_LOAD_CONCURRENCY` (fewer hydrations in flight per run; not measured).
 - **Storage.** A security's 34-year history is ≈ 8.5 MB in PostgreSQL (the benchmark database: 15 GB
   for 1,764 synthetic securities; real histories are shorter), so the canonical universe is ≈ 6 GB and
   5,000 hydrated securities ≈ 43 GB, plus up to 8 GB of WAL, two local
@@ -101,9 +106,9 @@ security), `BACKTEST_NON_RESIDENT_FRAME_READ=STORE` (`benchmark-results.md` §1�
 
 | Service  | CPU limit | Memory limit                         | Basis                                                                                                                                                                                  |
 | -------- | --------: | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| worker   |         5 | 15 GB (`--max-old-space-size` 2 GB)  | four backtest children × 3.4 GB (the measured hydration peak per process) + Monitor, market-data, stock-EOD children and supervisor ≈ 14.7 GB; four hydrating at once measured 11.9 GB |
+| worker   |         5 | 16 GB (`--max-old-space-size` 2 GB)  | four backtest children × 3.4 GB (the measured hydration peak per process; four at once 11.9 GB) + Monitor and stock-EOD children up to ~2 GB each + market data and supervisor ≈ 16 GB |
 | postgres |         3 | 8 GB                                 | `shared_buffers` 2.5 GB, `work_mem` 32 MB × ≤ 12 active queries (measured), the rest page cache inside the cgroup                                                                      |
-| redis    |         1 | 5 GB (`maxmemory` 4 GB)              | 3× the measured 1.30 GB, room to raise `STOCK_LRU_MAX_SECURITIES` to ~2,000 without a Redis change; 1 GB for buffers and the fork                                                      |
+| redis    |         1 | 4 GB (`maxmemory` 3 GB)              | 2.3× the measured 1.30 GB with both tiers full; room to raise `STOCK_LRU_MAX_SECURITIES` to ~1,500; 1 GB for buffers and the fork                                                      |
 | api      |         2 | 2 GB (`--max-old-space-size` 1.5 GB) | `benchmark-results.md` §6                                                                                                                                                              |
 | web      |         1 | 1 GB                                 | stateless Next.js server                                                                                                                                                               |
 | caddy    |         1 | 256 MB                               | TLS edge                                                                                                                                                                               |
@@ -133,7 +138,7 @@ repriced on 2026-04-01 and 2026-06-15); excluding VAT; verify at order time.
 | `BACKTEST_QUEUE_MAX_QUEUED`             | 100                                               | worker, api    | backpressure: `503 BACKTEST_QUEUE_FULL` beyond it                                                                             |
 | `STOCK_LRU_MAX_SECURITIES`              | 500                                               | api, worker    | the owner's specified LRU size; see `capacity-model.md` for what it holds                                                     |
 | `connection_limit`                      | api 20, worker 6/child, migrate 2                 | `DATABASE_URL` | the connection budget in `postgresql.conf` (Prisma otherwise sizes each pool from the CPU count, which multiplies by process) |
-| `maxmemory` / policy                    | 4 GB / `noeviction`                               | `redis.conf`   | the stock tiers require `noeviction`; sized in §3.2                                                                           |
+| `maxmemory` / policy                    | 3 GB / `noeviction`                               | `redis.conf`   | the stock tiers require `noeviction`; sized in §3.2                                                                           |
 | `RATE_LIMIT_TRUSTED_PROXY_HOPS`         | 1                                                 | api            | Caddy is the one proxy                                                                                                        |
 | `stop_grace_period`                     | worker 45 s, api 20 s, postgres 120 s, redis 60 s | compose        | longer than each process's own graceful path (worker supervisor: 30 s)                                                        |
 | `MONITOR_FAIR_USE_MAX_ENABLED_PER_USER` | 100                                               | api            | infrastructure protection for "unlimited" Monitors                                                                            |

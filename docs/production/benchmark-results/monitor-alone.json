@@ -1,0 +1,794 @@
+{
+  "args": {
+    "scenario": "growing",
+    "days": 2,
+    "gap": 0,
+    "replay": false,
+    "resident": 100,
+    "eodConcurrency": 2,
+    "monitorConcurrency": 4,
+    "out": "/home/user/factorsage/docs/production/benchmark-results/monitor-alone.json",
+    "logLevel": "warn",
+    "keep": false
+  },
+  "environment": {
+    "node": "v22.23.2",
+    "platform": "linux",
+    "arch": "x64",
+    "firstSession": "2025-06-10"
+  },
+  "results": [
+    {
+      "step": "cold",
+      "session": "2025-06-10",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 584365,
+        "cpuMs": 1022295,
+        "rssPeakMb": 1977,
+        "pg": {
+          "xact_commit": 20135,
+          "tup_returned": 11589061,
+          "tup_fetched": 9565524,
+          "tup_inserted": 3349418,
+          "tup_updated": 1382,
+          "tup_deleted": 191,
+          "blks_read": 313809,
+          "blks_hit": 33275046,
+          "queries": 40150,
+          "queryMs": 145958
+        },
+        "redis": {
+          "calls": {
+            "type": 2,
+            "pttl": 16003,
+            "persist": 14500,
+            "zscore": 3,
+            "exists": 500,
+            "incr": 500,
+            "strlen": 2,
+            "zrange": 900,
+            "zadd": 500,
+            "del": 12600,
+            "sismember": 1400,
+            "evalsha": 18000,
+            "srandmember": 1,
+            "zcard": 900,
+            "zrem": 900,
+            "scan": 37316,
+            "get": 19002,
+            "info": 2,
+            "select": 20,
+            "set": 15500,
+            "smembers": 3400,
+            "pexpire": 6500,
+            "sadd": 15000
+          },
+          "total": 163451,
+          "inBytes": 156722392,
+          "outBytes": 2291915
+        },
+        "provider": {
+          "dailyPrices": 500,
+          "dailyPriceRows": 1514000,
+          "profiles": 500,
+          "statements": 3000,
+          "holidays": 13
+        },
+        "providerByReason": {
+          "SECURITY_PROFILE:PROFILE_SYNC": 500,
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "FINANCIAL_STATEMENTS:FUNDAMENTALS_BACKFILL": 3000
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 3,
+            "ms": 59
+          },
+          "evaluationHistoryStart": {
+            "calls": 1124,
+            "ms": 96
+          },
+          "stockRefreshState": {
+            "calls": 1124,
+            "ms": 5419
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 1158317
+          },
+          "prepareStockOperands": {
+            "calls": 624,
+            "ms": 17
+          }
+        },
+        "runs": 3,
+        "universe": 500,
+        "providerReads": 4000,
+        "providerReadsPerSecurity": 8,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 42881,
+        "cpuMs": 79836,
+        "rssPeakMb": 1938,
+        "pg": {
+          "xact_commit": 13813,
+          "tup_returned": 3853530,
+          "tup_fetched": 396726,
+          "tup_inserted": 27200,
+          "tup_updated": 601,
+          "tup_deleted": 0,
+          "blks_read": 33563,
+          "blks_hit": 896054,
+          "queries": 68836,
+          "queryMs": 11851
+        },
+        "redis": {
+          "calls": {
+            "info": 2
+          },
+          "total": 2,
+          "inBytes": 58,
+          "outBytes": 4515
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 17
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 3337
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 31
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 26648
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 3
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 409
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 31
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 253
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 238
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 130044
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 546
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 993
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 10
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-10",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 3100,
+          "signalsClosed": 0,
+          "transitionsRecorded": 3100,
+          "levelsReconstructed": 12000,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "idle",
+      "session": "2025-06-10",
+      "newSessions": 0,
+      "stockEod": {
+        "durationMs": 1439,
+        "cpuMs": 2126,
+        "rssPeakMb": 1880,
+        "pg": {
+          "xact_commit": 1543,
+          "tup_returned": 1528008,
+          "tup_fetched": 18508,
+          "tup_inserted": 0,
+          "tup_updated": 0,
+          "tup_deleted": 0,
+          "blks_read": 22851,
+          "blks_hit": 8944,
+          "queries": 1528,
+          "queryMs": 444
+        },
+        "redis": {
+          "calls": {
+            "info": 2
+          },
+          "total": 2,
+          "inBytes": 58,
+          "outBytes": 4511
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 1,
+            "ms": 21
+          },
+          "evaluationHistoryStart": {
+            "calls": 500,
+            "ms": 32
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 1969
+          },
+          "prepareStockOperands": {
+            "calls": 500,
+            "ms": 10
+          }
+        },
+        "runs": 1,
+        "universe": 500,
+        "providerReads": 0,
+        "providerReadsPerSecurity": 0,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 4107,
+        "cpuMs": 4786,
+        "rssPeakMb": 1885,
+        "pg": {
+          "xact_commit": 2768,
+          "tup_returned": 1572990,
+          "tup_fetched": 61839,
+          "tup_inserted": 0,
+          "tup_updated": 301,
+          "tup_deleted": 0,
+          "blks_read": 23143,
+          "blks_hit": 54567,
+          "queries": 3618,
+          "queryMs": 869
+        },
+        "redis": {
+          "calls": {
+            "info": 2
+          },
+          "total": 2,
+          "inBytes": 58,
+          "outBytes": 4511
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 18
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 3149
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 4
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 463
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 17
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 680
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 494
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 555
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 990
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 7
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-10",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 0,
+          "signalsOpened": 0,
+          "signalsClosed": 0,
+          "transitionsRecorded": 0,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "steady",
+      "session": "2025-06-11",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 257967,
+        "cpuMs": 384357,
+        "rssPeakMb": 2010,
+        "pg": {
+          "xact_commit": 16074,
+          "tup_returned": 12119349,
+          "tup_fetched": 4808457,
+          "tup_inserted": 6713,
+          "tup_updated": 2067,
+          "tup_deleted": 5069,
+          "blks_read": 133688,
+          "blks_hit": 392043,
+          "queries": 29458,
+          "queryMs": 22947
+        },
+        "redis": {
+          "calls": {
+            "pttl": 15500,
+            "persist": 14500,
+            "exists": 500,
+            "incr": 500,
+            "zrange": 1000,
+            "zadd": 500,
+            "del": 15500,
+            "sismember": 1500,
+            "evalsha": 17500,
+            "zcard": 1000,
+            "zrem": 1000,
+            "get": 18500,
+            "info": 2,
+            "set": 15000,
+            "smembers": 3500,
+            "pexpire": 4500,
+            "sadd": 14500
+          },
+          "total": 125002,
+          "inBytes": 152682339,
+          "outBytes": 354513
+        },
+        "provider": {
+          "dailyPrices": 1000,
+          "dailyPriceRows": 15000,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 2
+        },
+        "providerByReason": {
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "DAILY_PRICE:PRICE_BASIS_EARLIEST_ROW": 500
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 2,
+            "ms": 50
+          },
+          "evaluationHistoryStart": {
+            "calls": 968,
+            "ms": 74
+          },
+          "stockRefreshState": {
+            "calls": 968,
+            "ms": 3664
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 510432
+          },
+          "prepareStockOperands": {
+            "calls": 468,
+            "ms": 9
+          }
+        },
+        "runs": 2,
+        "universe": 500,
+        "providerReads": 1000,
+        "providerReadsPerSecurity": 2,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 19812,
+        "cpuMs": 34929,
+        "rssPeakMb": 1937,
+        "pg": {
+          "xact_commit": 13796,
+          "tup_returned": 1622102,
+          "tup_fetched": 145712,
+          "tup_inserted": 1425,
+          "tup_updated": 10630,
+          "tup_deleted": 0,
+          "blks_read": 25338,
+          "blks_hit": 300154,
+          "queries": 53380,
+          "queryMs": 3930
+        },
+        "redis": {
+          "calls": {
+            "info": 2
+          },
+          "total": 2,
+          "inBytes": 58,
+          "outBytes": 4517
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 15
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 2392
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 29
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 3692
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 2
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 354
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 14
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 606
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 454
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 59963
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 583
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 978
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 6
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-11",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 507,
+          "signalsClosed": 411,
+          "transitionsRecorded": 918,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "steady",
+      "session": "2025-06-12",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 253312,
+        "cpuMs": 375384,
+        "rssPeakMb": 2019,
+        "pg": {
+          "xact_commit": 16104,
+          "tup_returned": 12148305,
+          "tup_fetched": 4856891,
+          "tup_inserted": 7122,
+          "tup_updated": 2105,
+          "tup_deleted": 6120,
+          "blks_read": 133506,
+          "blks_hit": 403152,
+          "queries": 29493,
+          "queryMs": 23127
+        },
+        "redis": {
+          "calls": {
+            "pttl": 15500,
+            "persist": 14500,
+            "exists": 500,
+            "incr": 500,
+            "zrange": 1000,
+            "zadd": 500,
+            "del": 15500,
+            "sismember": 1500,
+            "evalsha": 17500,
+            "zcard": 1000,
+            "zrem": 1000,
+            "get": 18500,
+            "info": 2,
+            "set": 15000,
+            "smembers": 3500,
+            "pexpire": 4500,
+            "sadd": 14500
+          },
+          "total": 125002,
+          "inBytes": 152713110,
+          "outBytes": 354515
+        },
+        "provider": {
+          "dailyPrices": 1000,
+          "dailyPriceRows": 15500,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 2
+        },
+        "providerByReason": {
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "DAILY_PRICE:PRICE_BASIS_EARLIEST_ROW": 500
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 2,
+            "ms": 47
+          },
+          "evaluationHistoryStart": {
+            "calls": 976,
+            "ms": 70
+          },
+          "stockRefreshState": {
+            "calls": 976,
+            "ms": 3634
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 501123
+          },
+          "prepareStockOperands": {
+            "calls": 476,
+            "ms": 8
+          }
+        },
+        "runs": 2,
+        "universe": 500,
+        "providerReads": 1000,
+        "providerReadsPerSecurity": 2,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 18999,
+        "cpuMs": 33286,
+        "rssPeakMb": 1982,
+        "pg": {
+          "xact_commit": 13798,
+          "tup_returned": 1629220,
+          "tup_fetched": 148193,
+          "tup_inserted": 1402,
+          "tup_updated": 10756,
+          "tup_deleted": 90,
+          "blks_read": 26478,
+          "blks_hit": 299096,
+          "queries": 53326,
+          "queryMs": 3798
+        },
+        "redis": {
+          "calls": {
+            "info": 2
+          },
+          "total": 2,
+          "inBytes": 58,
+          "outBytes": 4519
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 14
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 2377
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 27
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 3654
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 2
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 337
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 12
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 567
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 409
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 57358
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 576
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 972
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 7
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-12",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 413,
+          "signalsClosed": 485,
+          "transitionsRecorded": 898,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    }
+  ]
+}

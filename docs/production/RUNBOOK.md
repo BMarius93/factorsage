@@ -95,6 +95,7 @@ worker and web are recreated. Caddy holds requests up to 10 s while a container 
 | Redis              | `INFO memory used_memory` vs `maxmemory`; `rdb_last_bgsave_status`                                                                                                                     | > 85 %; `err`                                                             |
 | PostgreSQL         | connections vs `max_connections`; disk; replication/backup age                                                                                                                         | > 80 %; < 20 % free; backup > 26 h old                                    |
 | Host               | CPU, RAM, disk, load                                                                                                                                                                   | disk < 20 % free, RAM available < 10 %                                    |
+| Worker memory      | `docker stats factorsage-worker-1` (the cgroup's usage against its 16 GB limit); the kernel's OOM kills in `dmesg`                                                                     | > 80 % of the limit; any OOM kill                                         |
 
 Every process logs one JSON object per line to stdout (rotated by Docker: 5 × 50 MB per container).
 Ship them with any collector that reads Docker's JSON logs (e.g. Vector or Grafana Alloy to a hosted

@@ -66,5 +66,26 @@ note h-loop-stopped
 LOAD_TEST_PASSWORD="$PW" ./node_modules/.bin/tsx src/load-test/submission-probes.ts --base-url http://127.0.0.1:3101 --saturate 100 \
   > "$ROOT/artifacts/load/probes.stdout" 2> "$ROOT/artifacts/load/probes.stderr"
 note probes-done "\"exit\":$?"
+# The API through a Redis restart: readiness and a public stock page every 0.5 s for 60 s, with
+# Redis restarted (SHUTDOWN SAVE, then started again) 10 s in.
+(
+  end=$((SECONDS + 60))
+  while [ $SECONDS -lt $end ]; do
+    for path in /health/ready /stocks/SYN0001/summary; do
+      printf '%s %s %s\n' "$(date +%s.%N)" "$path" \
+        "$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "http://127.0.0.1:3101$path")"
+    done
+    sleep 0.5
+  done
+) > "$RES/api-redis-restart-probe.log" &
+PROBE=$!
+sleep 10
+note redis-restart-begun
+redis-cli SHUTDOWN SAVE > /dev/null; sleep 1; runuser -u redis -- redis-server /etc/redis/redis.conf --daemonize yes
+until redis-cli ping 2> /dev/null | grep -q PONG; do sleep 0.2; done
+note redis-restarted
+wait $PROBE
+redis-cli CONFIG SET save "900 1 300 100000" > /dev/null
+note redis-restart-probe-done
 kill $SERVERS; wait $SERVERS 2>/dev/null
 note finished

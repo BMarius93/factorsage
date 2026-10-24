@@ -208,3 +208,32 @@ lists sharing 400 never-hydrated ordinary members, all four executing):
 This is the deployment's memory high-water mark: four runs hydrating first-time securities at once
 need ~12 GB for the backtest processes alone (`benchmark-results/H-miss-mixed-shared.memory.log`
 samples the machine's free memory every 5 s).
+
+## 7. Monitors: the end-of-day path, alone and beside four backtests
+
+`bench:monitor --scenario=growing --days=2` (`apps/worker/src/monitor/capacity-bench.ts`): the
+production classes — the stock EOD preparation (`StockEodRefreshRun`) and the Monitor pass
+(`MonitorEodEvaluation`) over real PostgreSQL and Redis — with a synthetic provider and a simulated
+clock. 100 users × 3 Monitors = **300 enabled Monitors** over 30-member lists drawn from a
+500-security pool (**9,000 Monitor members**), 8 years of history, EOD concurrency 2, Monitor
+concurrency 4. The tool keeps its own Redis namespace with a 100-security LRU (its default), so its
+EOD step rebuilds more than production's 500-security LRU would: these are the conservative end.
+
+| Step                                        | Stock EOD preparation                                     | Monitor pass    |
+| ------------------------------------------- | --------------------------------------------------------- | --------------- |
+| First session (every security first-time)   | 584 s; 4,000 provider requests (8 per security)           | 42.9 s          |
+| The same session rescanned                  | 1.4 s; 0 requests                                         | 4.1 s           |
+| Each new session (two measured)             | **253–258 s**; 1,000 requests (2 per security), 1.5 cores | **19.0–19.8 s** |
+| Each new session, **beside four backtests** | **382–385 s** (same CPU time: it waited for a core)       | **30.4–30.7 s** |
+| First session, beside four backtests        | 835 s                                                     | 79.1 s          |
+
+Per new session the EOD step costs ~0.5 s of wall time per watched security and the Monitor pass
+~2.2 ms per Monitor member. Beside four executing backtests (`F8-H-beside-monitor-1…8`, run back to
+back for the whole benchmark) both took **~1.5× as long with the same CPU time**: on this 4 vCPU
+machine the four backtests hold every core, so the end-of-day path queues for one. The backtests
+beside it took 184–198 s for the four (156 s without it) and every one of their 32 runs completed
+with the digest of its list. The benchmark's one process (both steps) peaked at 2.0 GB.
+
+Sizing consequences: a session's EOD step for 5,000 watched securities would take ~40 min at this
+rate (it runs after the close, once per session); 100 Monitors per account × 30 members is 3,000
+members, ~7 s of a pass. On the 8 vCPU host the end-of-day path has cores of its own.

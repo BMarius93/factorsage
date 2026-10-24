@@ -1,0 +1,855 @@
+{
+  "args": {
+    "scenario": "growing",
+    "days": 2,
+    "gap": 0,
+    "replay": false,
+    "resident": 100,
+    "eodConcurrency": 2,
+    "monitorConcurrency": 4,
+    "out": "/home/user/factorsage/docs/production/benchmark-results/monitor-during-H.json",
+    "logLevel": "warn",
+    "keep": false
+  },
+  "environment": {
+    "node": "v22.23.2",
+    "platform": "linux",
+    "arch": "x64",
+    "firstSession": "2025-06-10"
+  },
+  "results": [
+    {
+      "step": "cold",
+      "session": "2025-06-10",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 834602,
+        "cpuMs": 947738,
+        "rssPeakMb": 1919,
+        "pg": {
+          "xact_commit": 21180,
+          "tup_returned": 12221981,
+          "tup_fetched": 9803786,
+          "tup_inserted": 3349301,
+          "tup_updated": 1585,
+          "tup_deleted": 301,
+          "blks_read": 1025955,
+          "blks_hit": 35750038,
+          "queries": 41018,
+          "queryMs": 194075
+        },
+        "redis": {
+          "calls": {
+            "pttl": 38718,
+            "scard": 807,
+            "persist": 36911,
+            "zscore": 483195,
+            "exists": 20377,
+            "incr": 215116,
+            "zrange": 215516,
+            "mget": 537788,
+            "zadd": 215116,
+            "del": 13924,
+            "sismember": 701489,
+            "evalsha": 887729,
+            "zcard": 216323,
+            "zrem": 4147,
+            "hello": 11,
+            "get": 2235327,
+            "info": 828,
+            "select": 11,
+            "set": 38928,
+            "smembers": 4935,
+            "pexpire": 8649,
+            "sadd": 40351
+          },
+          "total": 5916196,
+          "inBytes": 888978617,
+          "outBytes": 8304899659
+        },
+        "provider": {
+          "dailyPrices": 500,
+          "dailyPriceRows": 1514000,
+          "profiles": 500,
+          "statements": 3000,
+          "holidays": 13
+        },
+        "providerByReason": {
+          "SECURITY_PROFILE:PROFILE_SYNC": 500,
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "FINANCIAL_STATEMENTS:FUNDAMENTALS_BACKFILL": 3000
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 4,
+            "ms": 219
+          },
+          "evaluationHistoryStart": {
+            "calls": 1376,
+            "ms": 164
+          },
+          "stockRefreshState": {
+            "calls": 1376,
+            "ms": 8487
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 1652258
+          },
+          "prepareStockOperands": {
+            "calls": 876,
+            "ms": 22
+          }
+        },
+        "runs": 4,
+        "universe": 500,
+        "providerReads": 4000,
+        "providerReadsPerSecurity": 8,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 79119,
+        "cpuMs": 69747,
+        "rssPeakMb": 1931,
+        "pg": {
+          "xact_commit": 13837,
+          "tup_returned": 13855704,
+          "tup_fetched": 500522,
+          "tup_inserted": 26449,
+          "tup_updated": 685,
+          "tup_deleted": 94,
+          "blks_read": 36738,
+          "blks_hit": 981255,
+          "queries": 68018,
+          "queryMs": 48274
+        },
+        "redis": {
+          "calls": {
+            "scard": 79,
+            "zscore": 84751,
+            "incr": 37822,
+            "zrange": 37822,
+            "mget": 93860,
+            "zadd": 37822,
+            "sismember": 121892,
+            "evalsha": 140801,
+            "zcard": 37901,
+            "get": 375459,
+            "info": 81
+          },
+          "total": 968290,
+          "inBytes": 73506937,
+          "outBytes": 1442176876
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 45
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 6071
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 39
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 43886
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 5
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 454
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 33
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 423
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 336
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 252633
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 604
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 1072
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 8
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-10",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 2682,
+          "signalsClosed": 0,
+          "transitionsRecorded": 2682,
+          "levelsReconstructed": 12000,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "idle",
+      "session": "2025-06-10",
+      "newSessions": 0,
+      "stockEod": {
+        "durationMs": 1978,
+        "cpuMs": 1991,
+        "rssPeakMb": 1911,
+        "pg": {
+          "xact_commit": 1545,
+          "tup_returned": 1528348,
+          "tup_fetched": 115338,
+          "tup_inserted": 0,
+          "tup_updated": 0,
+          "tup_deleted": 0,
+          "blks_read": 24736,
+          "blks_hit": 9191,
+          "queries": 1521,
+          "queryMs": 860
+        },
+        "redis": {
+          "calls": {
+            "scard": 2,
+            "zscore": 1920,
+            "incr": 845,
+            "zrange": 845,
+            "mget": 2142,
+            "zadd": 845,
+            "sismember": 2798,
+            "evalsha": 3222,
+            "zcard": 847,
+            "get": 8585,
+            "info": 4
+          },
+          "total": 22055,
+          "inBytes": 1681683,
+          "outBytes": 33059218
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 1,
+            "ms": 23
+          },
+          "evaluationHistoryStart": {
+            "calls": 500,
+            "ms": 40
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 2871
+          },
+          "prepareStockOperands": {
+            "calls": 500,
+            "ms": 13
+          }
+        },
+        "runs": 1,
+        "universe": 500,
+        "providerReads": 0,
+        "providerReadsPerSecurity": 0,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 4642,
+        "cpuMs": 3956,
+        "rssPeakMb": 1915,
+        "pg": {
+          "xact_commit": 2720,
+          "tup_returned": 1572158,
+          "tup_fetched": 157667,
+          "tup_inserted": 0,
+          "tup_updated": 300,
+          "tup_deleted": 0,
+          "blks_read": 24809,
+          "blks_hit": 52883,
+          "queries": 3559,
+          "queryMs": 1481
+        },
+        "redis": {
+          "calls": {
+            "scard": 5,
+            "zscore": 4350,
+            "incr": 1960,
+            "zrange": 1960,
+            "mget": 4776,
+            "zadd": 1960,
+            "sismember": 6193,
+            "evalsha": 7171,
+            "zcard": 1965,
+            "get": 19112,
+            "info": 7
+          },
+          "total": 49459,
+          "inBytes": 3742529,
+          "outBytes": 73449428
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 17
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 4719
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 3
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 471
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 22
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 751
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 546
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 551
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 986
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 6
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-10",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 0,
+          "signalsOpened": 0,
+          "signalsClosed": 0,
+          "transitionsRecorded": 0,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "steady",
+      "session": "2025-06-11",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 382172,
+        "cpuMs": 358211,
+        "rssPeakMb": 1994,
+        "pg": {
+          "xact_commit": 15772,
+          "tup_returned": 11711920,
+          "tup_fetched": 5190233,
+          "tup_inserted": 6671,
+          "tup_updated": 2152,
+          "tup_deleted": 5166,
+          "blks_read": 133105,
+          "blks_hit": 403281,
+          "queries": 29037,
+          "queryMs": 47579
+        },
+        "redis": {
+          "calls": {
+            "pttl": 15500,
+            "scard": 358,
+            "persist": 14500,
+            "zscore": 378395,
+            "exists": 500,
+            "incr": 168724,
+            "zrange": 169224,
+            "mget": 420358,
+            "zadd": 168724,
+            "del": 15500,
+            "sismember": 547897,
+            "evalsha": 648011,
+            "zcard": 169582,
+            "zrem": 1000,
+            "hello": 10,
+            "get": 1713898,
+            "info": 378,
+            "select": 10,
+            "set": 15000,
+            "smembers": 3500,
+            "pexpire": 4500,
+            "sadd": 14500
+          },
+          "total": 4470069,
+          "inBytes": 483279841,
+          "outBytes": 6478045269
+        },
+        "provider": {
+          "dailyPrices": 1000,
+          "dailyPriceRows": 15000,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 2
+        },
+        "providerByReason": {
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "DAILY_PRICE:PRICE_BASIS_EARLIEST_ROW": 500
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 2,
+            "ms": 68
+          },
+          "evaluationHistoryStart": {
+            "calls": 829,
+            "ms": 76
+          },
+          "stockRefreshState": {
+            "calls": 829,
+            "ms": 7005
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 754032
+          },
+          "prepareStockOperands": {
+            "calls": 329,
+            "ms": 12
+          }
+        },
+        "runs": 2,
+        "universe": 500,
+        "providerReads": 1000,
+        "providerReadsPerSecurity": 2,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 30724,
+        "cpuMs": 32424,
+        "rssPeakMb": 1934,
+        "pg": {
+          "xact_commit": 13790,
+          "tup_returned": 1621314,
+          "tup_fetched": 238530,
+          "tup_inserted": 1072,
+          "tup_updated": 10397,
+          "tup_deleted": 0,
+          "blks_read": 29396,
+          "blks_hit": 289229,
+          "queries": 52808,
+          "queryMs": 15712
+        },
+        "redis": {
+          "calls": {
+            "scard": 31,
+            "zscore": 22062,
+            "incr": 9992,
+            "zrange": 9992,
+            "mget": 24142,
+            "zadd": 9992,
+            "sismember": 31224,
+            "evalsha": 36218,
+            "zcard": 10023,
+            "get": 96575,
+            "info": 33
+          },
+          "total": 250284,
+          "inBytes": 18908740,
+          "outBytes": 361416897
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 17
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 3716
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 38
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 5555
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 2
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 453
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 14
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 682
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 447
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 98954
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 623
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 1059
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 8
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-11",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 349,
+          "signalsClosed": 374,
+          "transitionsRecorded": 723,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    },
+    {
+      "step": "steady",
+      "session": "2025-06-12",
+      "newSessions": 1,
+      "stockEod": {
+        "durationMs": 385494,
+        "cpuMs": 360012,
+        "rssPeakMb": 1975,
+        "pg": {
+          "xact_commit": 15779,
+          "tup_returned": 11685460,
+          "tup_fetched": 5226325,
+          "tup_inserted": 7156,
+          "tup_updated": 2132,
+          "tup_deleted": 6152,
+          "blks_read": 133341,
+          "blks_hit": 406602,
+          "queries": 29076,
+          "queryMs": 48217
+        },
+        "redis": {
+          "calls": {
+            "pttl": 15500,
+            "scard": 360,
+            "persist": 14500,
+            "zscore": 379319,
+            "exists": 500,
+            "incr": 168978,
+            "zrange": 169478,
+            "mget": 421694,
+            "zadd": 168978,
+            "del": 15500,
+            "sismember": 549778,
+            "evalsha": 650019,
+            "zcard": 169838,
+            "zrem": 1000,
+            "hello": 10,
+            "get": 1719250,
+            "info": 380,
+            "select": 10,
+            "set": 15000,
+            "smembers": 3500,
+            "pexpire": 4500,
+            "sadd": 14500
+          },
+          "total": 4482592,
+          "inBytes": 484358235,
+          "outBytes": 6509257364
+        },
+        "provider": {
+          "dailyPrices": 1000,
+          "dailyPriceRows": 15500,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 2
+        },
+        "providerByReason": {
+          "DAILY_PRICE:MISSING_COVERAGE": 500,
+          "DAILY_PRICE:PRICE_BASIS_EARLIEST_ROW": 500
+        },
+        "phases": {
+          "findSecuritiesByIds": {
+            "calls": 2,
+            "ms": 52
+          },
+          "evaluationHistoryStart": {
+            "calls": 820,
+            "ms": 81
+          },
+          "stockRefreshState": {
+            "calls": 820,
+            "ms": 6484
+          },
+          "refreshStockTail": {
+            "calls": 500,
+            "ms": 761952
+          },
+          "prepareStockOperands": {
+            "calls": 320,
+            "ms": 7
+          }
+        },
+        "runs": 2,
+        "universe": 500,
+        "providerReads": 1000,
+        "providerReadsPerSecurity": 2,
+        "outcomes": {
+          "READY": 500
+        }
+      },
+      "monitor": {
+        "durationMs": 30443,
+        "cpuMs": 31921,
+        "rssPeakMb": 1888,
+        "pg": {
+          "xact_commit": 13791,
+          "tup_returned": 1628698,
+          "tup_fetched": 240613,
+          "tup_inserted": 1190,
+          "tup_updated": 10481,
+          "tup_deleted": 0,
+          "blks_read": 30449,
+          "blks_hit": 298665,
+          "queries": 53010,
+          "queryMs": 21111
+        },
+        "redis": {
+          "calls": {
+            "scard": 18,
+            "zscore": 10948,
+            "incr": 4912,
+            "zrange": 4912,
+            "mget": 12076,
+            "zadd": 4912,
+            "sismember": 15670,
+            "evalsha": 18122,
+            "zcard": 4930,
+            "hello": 4,
+            "get": 48321,
+            "info": 28,
+            "select": 4
+          },
+          "total": 124857,
+          "inBytes": 9461530,
+          "outBytes": 175604616
+        },
+        "provider": {
+          "dailyPrices": 0,
+          "dailyPriceRows": 0,
+          "profiles": 0,
+          "statements": 0,
+          "holidays": 0
+        },
+        "providerByReason": {},
+        "phases": {
+          "findSecurities": {
+            "calls": 1,
+            "ms": 19
+          },
+          "stockRefreshState": {
+            "calls": 500,
+            "ms": 3344
+          },
+          "reconstructionHistoryStart": {
+            "calls": 500,
+            "ms": 32
+          },
+          "readFinalizedEvaluationFrame": {
+            "calls": 500,
+            "ms": 5088
+          },
+          "recordExpectedSession": {
+            "calls": 1,
+            "ms": 3
+          },
+          "listActiveMonitors": {
+            "calls": 1,
+            "ms": 458
+          },
+          "markWatching": {
+            "calls": 1,
+            "ms": 23
+          },
+          "loadSignalStates": {
+            "calls": 300,
+            "ms": 680
+          },
+          "loadCheckpoints": {
+            "calls": 300,
+            "ms": 482
+          },
+          "applyMemberEvaluation": {
+            "calls": 9000,
+            "ms": 97069
+          },
+          "resolveUnvisitedStates": {
+            "calls": 300,
+            "ms": 653
+          },
+          "pruneCheckpoints": {
+            "calls": 300,
+            "ms": 1343
+          },
+          "markScanned": {
+            "calls": 1,
+            "ms": 7
+          }
+        },
+        "summary": {
+          "expectedSession": "2025-06-12",
+          "calendar": "EXCHANGE",
+          "monitors": 300,
+          "securities": 500,
+          "members": 9000,
+          "membersCurrent": 9000,
+          "membersAwaitingData": 0,
+          "membersAwaitingEtf": 0,
+          "membersAwaitingLateSession": 0,
+          "sessionsEvaluated": 9000,
+          "signalsOpened": 400,
+          "signalsClosed": 390,
+          "transitionsRecorded": 790,
+          "levelsReconstructed": 0,
+          "reconstructionHistoryExtensions": 0,
+          "membersNotCurrent": 0,
+          "membershipResets": 0,
+          "membersReplayed": 0,
+          "contended": 0,
+          "staleConfiguration": 0,
+          "membersBackfilled": 0,
+          "sessionsBackfilled": 0,
+          "membersBackfillBlocked": 0,
+          "securitiesFailed": 0,
+          "aborted": false
+        }
+      }
+    }
+  ]
+}
