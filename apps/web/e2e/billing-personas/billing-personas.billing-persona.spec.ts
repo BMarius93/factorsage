@@ -195,12 +195,13 @@ for (const persona of BILLING_PERSONA_LIST) {
           await expect(
             page.getByTestId(`plan-action-${persona.subscribedPlan}`),
           ).toBeEnabled();
-          await expect(page.getByTestId("plan-action-STARTER")).toHaveText(
-            "Upgrade to Starter",
-          );
-          await expect(page.getByTestId("plan-action-PRO_PLUS")).toHaveText(
-            "Upgrade to Pro+",
-          );
+          for (const plan of ["STARTER", "PRO", "PRO_PLUS"] as const) {
+            if (plan !== persona.subscribedPlan) {
+              await expect(page.getByTestId(`plan-action-${plan}`)).toHaveText(
+                `Upgrade to ${PLAN_LABEL[plan]}`,
+              );
+            }
+          }
           break;
       }
 

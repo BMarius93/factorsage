@@ -796,15 +796,19 @@ same setup independently.**
 
 > **History, recorded against the V1 catalog** (Starter and Pro at $9 / $29 a month and $99 / $299 a
 > year), before `entitlements-v2.md`: the amounts, price keys and entitlement figures below are V1's,
-> and the cadence rows have no V2 counterpart. **It must be re-run for the V2 catalog:**
-> `pnpm billing:verify-catalog` (six prices, both cadences of a plan on one product, one product per
-> plan);
-> `STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox`;
-> `STRIPE_BILLING_PERSONAS=true pnpm test:billing:personas` (six personas, Pro+ included);
-> `billing-lifecycle.sandbox.test.ts` with `STRIPE_BILLING_AUDIT=true` (BILL-01 as Pro → scheduled
-> Starter → Pro+); and by hand, from the runbook above, hosted Checkout on each of the six prices,
-> the upgrades to Pro+, a failed upgrade, a scheduled downgrade from Pro+ at its boundary, Portal
-> cancellation and its reversal, the actual cancellation, a duplicate delivery and the repair CLI.
+> and its cadence rows predate the V2 yearly prices.
+>
+> **Re-run for the V2 catalog on 2026-10-24** (the cloud sandbox, the six V2 prices, the four V1
+> prices listed as retired), automated suites only: `pnpm billing:verify-catalog` 6 / 6, plus both
+> stale-year guards (a V1 year in a yearly variable is reported by its amount; listed as retired
+> too, startup refuses it); `STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox` 13 / 13 (hosted
+> Checkout on each yearly price); `billing-lifecycle.sandbox.test.ts` with `STRIPE_BILLING_AUDIT=true`
+> 12 / 12 (each year charged in full upfront; Pro monthly → yearly at once, $390 charged; Pro yearly
+> → monthly scheduled for the end of the paid year, then $49; a failed yearly renewal; a
+> grandfathered V1 subscriber; BILL-01 as Pro → scheduled Starter → Pro+); `STRIPE_BILLING_PERSONAS=true
+> pnpm test:billing:personas` 47 / 47. **Still by hand only, and not re-run:** paying in a hosted
+> Checkout page with a test card, Portal cancellation and its reversal, a duplicate delivery through
+> `stripe listen`, and the repair CLI against those accounts.
 
 Run against the FactorSage Stripe sandbox (test mode, `livemode: false` on every object) with
 `stripe listen` forwarding to the local API. Four real defects surfaced here and nowhere else, which is

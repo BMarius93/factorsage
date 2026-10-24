@@ -324,6 +324,13 @@ tooling "creates" offline is read by the real reconciler through the product's o
 
 ## 10. Verified against the Stripe sandbox
 
+**V2 catalog, 2026-10-24** — the cloud sandbox (test mode), the six V2 prices, the four V1 prices
+listed as retired: `STRIPE_BILLING_PERSONAS=true scripts/cloud/with-stripe.sh pnpm
+test:billing:personas` passed 47 / 47 — each persona built on its own Test Clock on the price in §1
+(three of them yearly, each charged its full year at seeding), reconciled by the application, left
+alone by a second run, and the cleanup proven on a seventh — and `pnpm test:e2e:billing:personas`
+read every persona's billing page, 24 / 24. The table below is the earlier V1 run.
+
 Local FactorSage sandbox (test mode), 2026-10-10, pinned API version `2026-08-26.dahlia`.
 
 > **History, recorded against the V1 catalog:** five personas, `BILLING_STARTER_ACTIVE` and

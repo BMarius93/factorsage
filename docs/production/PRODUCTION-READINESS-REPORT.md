@@ -30,8 +30,9 @@ and fixing what would have failed in production was most of the value of this wo
 - Redis refused its configuration;
 - the API and the web image could not start from the committed templates and build.
 
-What remains is outside the code: the V2 Stripe catalog does not exist yet, so its sandbox suites
-never ran; the legal pages are not approved, so no release web image can be built; and nothing has
+What remains is outside the code: the V2 Stripe catalog — six prices since annual billing was
+restored on 2026-10-24 — exists and passes every sandbox suite in the Stripe sandbox, but not yet in
+live mode; the legal pages are not approved, so no release web image can be built; and nothing has
 run on production hardware.
 
 **Verdict: READY WITH LIMITATIONS** (§H).
@@ -47,7 +48,9 @@ run on production hardware.
 
 | Limit                                       |   Free | Starter |         Pro |        Pro+ |
 | ------------------------------------------- | -----: | ------: | ----------: | ----------: |
-| Price (monthly only)                        |     $0 |     $19 |         $49 |        $199 |
+| Price, monthly                              |     $0 |     $19 |         $49 |        $199 |
+| Price, yearly (charged upfront)             |      — |    $169 |        $439 |      $1,790 |
+| Yearly, per month (Save 25%)                |      — |  $14.08 |      $36.58 |     $149.17 |
 | Symbols per List and per Backtest           |     10 |      50 |         750 |       1,000 |
 | Active Monitors                             |      1 |       5 | Unlimited\* | Unlimited\* |
 | Concurrent Backtests (own runs in flight)   |      1 |       1 |           1 |           2 |
@@ -63,8 +66,12 @@ infrastructure: an operational fair-use ceiling of 100 enabled Monitors per acco
 plan number) protects the shared end-of-day pass. 30 years is subject to data availability. Guests
 read public content and precomputed demonstration backtests, and never start a computation.
 
-Pricing (`apps/web/src/features/billing`): four monthly cards; Pro is marked **Best Value**, Pro+
-**Advanced Research**; Pro+ advertises **Parallel Backtests** and states the limit of two at once. No
+Pricing (`apps/web/src/features/billing`): four cards, re-priced in place by a Monthly/Yearly toggle
+whose Yearly option says **Save 25%**. A yearly card leads with its effective monthly cost and states,
+directly under it, the exact annual amount billed upfront ("Billed annually: $169 upfront"); the
+saving is rounded down, so it never claims more than the prices give. Pro is marked **Best Value**,
+Pro+ **Advanced Research**, in both cadences; Pro+ advertises **Parallel Backtests** and states the
+limit of two at once. No
 surface claims priority, faster or guaranteed execution — the queue has no paid priority
 (`docs/decisions/entitlements-v2.md` §10).
 
@@ -82,16 +89,25 @@ surface claims priority, faster or guaranteed execution — the queue has no pai
 
 ### Stripe integration status
 
-- Catalog: monthly-only `STARTER_MONTHLY`, `PRO_MONTHLY`, `PRO_PLUS_MONTHLY`; the retired yearly
-  variables are refused at startup; `pnpm billing:verify-catalog` checks amounts and products.
+- Catalog: six prices — `STARTER_MONTHLY`, `STARTER_YEARLY`, `PRO_MONTHLY`, `PRO_YEARLY`,
+  `PRO_PLUS_MONTHLY`, `PRO_PLUS_YEARLY` — both cadences of a plan on that plan's one product
+  (`entitlements-v2.md` §2, annual billing restored 2026-10-24). `pnpm billing:verify-catalog`
+  checks amounts, cadences and products; a V1 year left in a `*_YEARLY` variable is reported by its
+  amount, and refused at startup once it is listed as retired.
 - Subscribers on retired V1 prices are grandfathered through `STRIPE_LEGACY_PRICES` (otherwise they
-  would fall to Free at their next reconciliation) — an owner action before deploy (§G, P0-2).
+  would fall to Free at their next reconciliation) — an owner action before deploy (§G, P0-2). The
+  same plan and cadence keeps the retired price; any other change is the ordinary transition onto
+  today's price. Nothing migrates or reprices a subscription.
 - Reconciliation is the only writer of `User.plan`; webhooks are signature-checked and idempotent
   (duplicate and out-of-order deliveries are integration-tested).
-- **Not exercised against Stripe in this work.** This environment's Stripe sandbox still holds the V1
-  catalog and has no Pro+ price, so `scripts/cloud/with-stripe.sh` refuses to run and the sandbox
-  suites (`test:billing:sandbox`, `test:billing:personas`) were **NOT RUN**. Stripe behaviour is
-  covered by the fixture-gateway integration suite only (§G, P0-1).
+- **Exercised against the Stripe sandbox (test mode) on 2026-10-24**, with the six V2 sandbox prices
+  the owner created and the four V1 prices listed as retired: `verify-catalog` (six of six, and both
+  stale-year guards); the smoke suite (13 / 13, hosted Checkout on each yearly price); the lifecycle
+  suite on Test Clocks (12 / 12: each year charged in full upfront — $169, $439, $1,790 on one paid
+  invoice covering 365 days; Pro monthly → yearly at once, $390 charged = $439 less the unused $49
+  month; Pro yearly → monthly scheduled for the end of the paid year, then a $49 invoice; a failed
+  yearly renewal kept the plan; a V1 subscriber stayed on the retired price until upgrading; BILL-01,
+  BILL-02, past-due recovery, renewal); and the six billing personas. **Live mode was not touched.**
 
 ### Tests
 
@@ -484,12 +500,12 @@ not grow with hardware.
 
 ### P0 — before launch (owner actions; no code defect is open)
 
-| #    | Risk                                                                                                                                                                                                                                                                     | Evidence                                                                                                                                                 | Action                                                                                                                                                                                                                                                                         |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| P0-1 | **The V2 Stripe catalog does not exist yet**, so the Stripe sandbox suites never ran against the new prices                                                                                                                                                              | this environment's sandbox holds the V1 prices and no Pro+ price; `scripts/cloud/with-stripe.sh` refuses without `SANDBOX_STRIPE_PRICE_PRO_PLUS_MONTHLY` | create the Pro+ product and its $199 monthly price, point Starter and Pro at $19/$49 monthly prices, set the three `STRIPE_PRICE_*_MONTHLY`, run `pnpm billing:verify-catalog`, `test:billing:sandbox` and `test:billing:personas` in the sandbox, then the live catalog check |
-| P0-2 | **Existing subscribers on retired prices** fall to Free at their next reconciliation unless listed                                                                                                                                                                       | billing integration suite, "subscribers on a retired price" cases                                                                                        | list every V1 price id in `STRIPE_LEGACY_PRICES` before the first deploy                                                                                                                                                                                                       |
-| P0-3 | **Nothing has run on production hardware**: the real database's restore time, the host's speed-up and the alerts are unmeasured                                                                                                                                          | §E; `RUNBOOK.md` §7                                                                                                                                      | provision, deploy, run the restore drill and `bench:scale-backtests` on the host before opening sign-ups                                                                                                                                                                       |
-| P0-4 | **The legal pages are not approved**, so no release web image can be built: `pnpm legal:check` lists 16 blockers — ten operator facts (entity, address, identifiers, contacts, supervisory authority, governing law, dispute resolution) and six documents still `DRAFT` | `pnpm legal:check` (2026-10-24); a release web build stops on them by design (`apps/web/src/lib/legal-release.ts`, §E)                                   | supply the ten `NEXT_PUBLIC_LEGAL_*` facts as build arguments and approve the six documents (`docs/legal/owner-inputs-and-review.md`); then build the release web image                                                                                                        |
+| #    | Risk                                                                                                                                                                                                                                                                     | Evidence                                                                                                               | Action                                                                                                                                                                                                                                                                                                                            |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0-1 | **The live V2 Stripe catalog does not exist yet.** The six V2 prices exist in the sandbox and pass every sandbox suite (§A); the cloud environment's `SANDBOX_STRIPE_PRICE_*` settings still name the V1 prices, so these runs passed the V2 ids on the command line     | §A, "Stripe integration status"; `docs/development/claude-cloud-environment.md`                                        | create the six live prices (two per product, the amounts in `entitlements-v2.md` §2), set the six `STRIPE_PRICE_*` in `api.env`, run the catalog check before deploying (`RUNBOOK.md` §4); point the cloud environment's six `SANDBOX_STRIPE_PRICE_*` at the V2 sandbox ids and move the V1 ids to `SANDBOX_STRIPE_LEGACY_PRICES` |
+| P0-2 | **Existing subscribers on retired prices** fall to Free at their next reconciliation unless listed                                                                                                                                                                       | billing integration suite, "subscribers on a retired price" cases                                                      | list every V1 price id in `STRIPE_LEGACY_PRICES` before the first deploy                                                                                                                                                                                                                                                          |
+| P0-3 | **Nothing has run on production hardware**: the real database's restore time, the host's speed-up and the alerts are unmeasured                                                                                                                                          | §E; `RUNBOOK.md` §7                                                                                                    | provision, deploy, run the restore drill and `bench:scale-backtests` on the host before opening sign-ups                                                                                                                                                                                                                          |
+| P0-4 | **The legal pages are not approved**, so no release web image can be built: `pnpm legal:check` lists 16 blockers — ten operator facts (entity, address, identifiers, contacts, supervisory authority, governing law, dispute resolution) and six documents still `DRAFT` | `pnpm legal:check` (2026-10-24); a release web build stops on them by design (`apps/web/src/lib/legal-release.ts`, §E) | supply the ten `NEXT_PUBLIC_LEGAL_*` facts as build arguments and approve the six documents (`docs/legal/owner-inputs-and-review.md`); then build the release web image                                                                                                                                                           |
 
 ### P1 — fix soon after launch, or launch with the stated mitigation
 
@@ -533,7 +549,7 @@ make (§G, P0), and operating limits to launch with knowingly (§G, P1).
 | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | Final entitlement matrix, one server-side policy, bypass-resistant, atomic                              | **met**                                                                                                                                                                                 | §A, probes 16 / 16 |
 | Pricing (Best Value, Advanced Research, Parallel Backtests with its limit, no speed or priority claims) | **met**                                                                                                                                                                                 | §A                 |
-| Stripe synchronisation                                                                                  | implemented and integration-tested through the fixture gateway; **not run against Stripe** (no V2 catalog exists yet)                                                                   | §A, P0-1           |
+| Stripe synchronisation, six prices (monthly and yearly)                                                 | **met in the Stripe sandbox**: catalog, smoke, lifecycle and persona suites pass on the V2 prices; the live catalog is not created yet                                                  | §A, P0-1           |
 | At most four backtests executing deployment-wide; durable, cancellable, crash-safe, fair, bounded queue | **met**: a killed worker's run re-executed once, 81 s later, same result; `503` + `Retry-After` at the bound                                                                            | §B.2, §C, §D       |
 | `STOCK_LRU_MAX_SECURITIES=500`                                                                          | **met**, after fixing the contention it caused (one window 1,418.7 s → 5.2 s)                                                                                                           | §D                 |
 | Four simultaneous 1,000-security, 30-year backtests                                                     | **met**: 2.6 min warm, 21.3 min from an empty Redis, 18.2 min with 400 first-time securities at 11.9 GB of worker memory (16 GB limit)                                                  | §B                 |
@@ -542,7 +558,7 @@ make (§G, P0), and operating limits to launch with knowingly (§G, P1).
 | Capacity model                                                                                          | delivered as a script; usage assumptions unvalidated                                                                                                                                    | §F                 |
 | Failure and recovery                                                                                    | **met**; PostgreSQL exhaustion and a sustained provider rate limit fail executing runs by design (re-run)                                                                               | §D                 |
 
-**Before launch (P0):** create the V2 Stripe catalog and pass the sandbox suites (P0-1); list the
+**Before launch (P0):** create the live V2 Stripe catalog — six prices — and check it (P0-1); list the
 retired prices in `STRIPE_LEGACY_PRICES` (P0-2); supply the legal facts and approve the legal
 documents, without which no release web image can be built (P0-4); provision the host, deploy, and
 run the restore drill and the benchmark harness on it (P0-3).
