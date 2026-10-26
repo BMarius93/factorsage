@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   BACKTEST_SHARE_TOKEN_BYTES,
   backtestSharePath,
+  definitionDescriptionPublication,
   DEMO_BACKTESTS_MAX,
   isBacktestShareToken,
   sampleSharedBacktestPreview,
@@ -10,20 +11,36 @@ import {
   withCanonicalStrategyDefinition,
   type BacktestResultSummaryResponse,
   type BacktestRunSnapshot,
+  type BacktestShareDefinitionResponse,
   type BacktestShareResponse,
   type DemoBacktestListResponse,
   type DemoBacktestResponse,
   type SharedBacktestConfigurationResponse,
+  type SharedBacktestDefinitionsResponse,
   type SharedBacktestPreviewResponse,
   type SharedBacktestReportResponse,
   type SharedBacktestSummaryResponse,
+  type SharedDefinitionResponse,
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import { benchmarkDisplayName } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
+import {
+  CanonicalDefinitionError,
+  describeDefinition,
+  serializeSnapshotList,
+  serializeSnapshotStrategy,
+  validateDefinition,
+  type CanonicalDefinitionDocument,
+  type CanonicalListDocument,
+  type CanonicalProvenance,
+  type CanonicalStrategyDocument,
+  type DefinitionDescription,
+} from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
 import { AUTH_CONFIG, type AuthConfig } from "../config/configuration.module";
 import { PrismaService } from "../database/prisma.service";
+import { DefinitionProvenanceResolver } from "../definitions/definition-provenance";
 import {
   annualReturnsOf,
   BacktestRunNotFoundError,
@@ -59,6 +76,19 @@ export class BacktestNotShareableError extends Error {
 }
 
 /**
+ * The run's Strategy or List could not be written as a canonical definition, so no link is created:
+ * a share is recorded whole — its definitions and their descriptions — or not at all.
+ */
+export class BacktestShareDefinitionsUnavailableError extends Error {
+  constructor() {
+    super(
+      "This backtest's strategy or list could not be recorded for sharing, so no link was created.",
+    );
+    this.name = "BacktestShareDefinitionsUnavailableError";
+  }
+}
+
+/**
  * Raised for a token that is malformed, unknown, revoked or points at a run with no result. The
  * cases are deliberately indistinguishable, so a probe learns nothing about which tokens existed.
  */
@@ -88,7 +118,141 @@ type SharedRunRow = Prisma.BacktestRunGetPayload<{
   select: typeof SHARED_RUN_SELECT;
 }>;
 
-type ShareRow = { token: string; createdAt: Date };
+/** What a share holds beside its token: the recorded definitions and the owner's choice. */
+const SHARE_SELECT = {
+  token: true,
+  createdAt: true,
+  definitions: true,
+  descriptions: true,
+  publishDescriptions: true,
+} satisfies Prisma.BacktestShareSelect;
+
+type ShareRow = Prisma.BacktestShareGetPayload<{ select: typeof SHARE_SELECT }>;
+
+/** The canonical documents and their descriptions, as one share records them. */
+type ShareDefinitions = {
+  definitions: {
+    strategy: CanonicalStrategyDocument;
+    list: CanonicalListDocument;
+  };
+  descriptions: {
+    strategy: DefinitionDescription;
+    list: DefinitionDescription;
+  };
+};
+
+function isDescription(value: unknown): value is DefinitionDescription {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as DefinitionDescription).short === "string" &&
+    typeof (value as DefinitionDescription).detailed === "string"
+  );
+}
+
+/**
+ * The definitions a share recorded, read back and checked, or `null` for a share created before
+ * definitions were recorded. A stored document this build cannot read is reported and treated as
+ * absent — never served half-understood.
+ */
+function recordedDefinitions(
+  share: Pick<ShareRow, "definitions" | "descriptions">,
+  logger: StructuredLogger,
+  runId: string,
+): ShareDefinitions | null {
+  if (share.definitions === null || share.descriptions === null) {
+    return null;
+  }
+  const definitions = share.definitions as Record<string, unknown>;
+  const descriptions = share.descriptions as Record<string, unknown>;
+  const strategy = validateDefinition(definitions.strategy);
+  const list = validateDefinition(definitions.list);
+  if (
+    !strategy.valid ||
+    strategy.document.type !== "strategy" ||
+    !list.valid ||
+    list.document.type !== "list" ||
+    !isDescription(descriptions.strategy) ||
+    !isDescription(descriptions.list)
+  ) {
+    logger.error({
+      event: "backtest.share.definitions.unreadable",
+      runId,
+      issues: [
+        ...(strategy.valid ? [] : strategy.issues),
+        ...(list.valid ? [] : list.issues),
+      ].slice(0, 5),
+    });
+    return null;
+  }
+  return {
+    definitions: { strategy: strategy.document, list: list.document },
+    descriptions: { strategy: descriptions.strategy, list: descriptions.list },
+  };
+}
+
+/** The built-in a definition is, or was derived from, when there is one. */
+function builtInReferenceOf(provenance: CanonicalProvenance) {
+  return provenance.origin === "built_in"
+    ? provenance.builtIn
+    : provenance.origin === "derived"
+      ? provenance.derivedFrom
+      : undefined;
+}
+
+function publicationOf(document: CanonicalDefinitionDocument) {
+  return definitionDescriptionPublication({
+    type: document.type,
+    origin: document.provenance.origin,
+    premium: builtInReferenceOf(document.provenance)?.premium === true,
+  });
+}
+
+/** The owner's view of one recorded definition. */
+function ownerDefinitionOf(
+  document: CanonicalDefinitionDocument,
+  description: DefinitionDescription,
+): BacktestShareDefinitionResponse {
+  const builtIn = builtInReferenceOf(document.provenance);
+  return {
+    origin: document.provenance.origin,
+    ...(builtIn ? { builtInName: builtIn.name } : {}),
+    publication: publicationOf(document),
+    short: description.short,
+  };
+}
+
+/**
+ * The public view of one recorded definition: its origin, the official name of the built-in behind
+ * it, and its description only where the publication rule and the owner's choice allow. The
+ * canonical document itself, its metadata — the customer's own name for their content — and every
+ * member never leave this function.
+ */
+function sharedDefinitionOf(
+  document: CanonicalDefinitionDocument,
+  description: DefinitionDescription,
+  publishDescriptions: boolean,
+): SharedDefinitionResponse {
+  const builtIn = builtInReferenceOf(document.provenance);
+  const publication = publicationOf(document);
+  const published =
+    publication === "always" ||
+    (publication === "opt_in" && publishDescriptions);
+  return {
+    origin: document.provenance.origin,
+    ...(builtIn ? { builtInName: builtIn.name } : {}),
+    description: published
+      ? {
+          status: "published",
+          short: description.short,
+          detailed: description.detailed,
+        }
+      : {
+          status: "withheld",
+          reason: publication === "never" ? "premium" : "owner",
+        },
+  };
+}
 
 function newShareToken(): string {
   return randomBytes(BACKTEST_SHARE_TOKEN_BYTES).toString("base64url");
@@ -143,22 +307,47 @@ function sharedConfigurationOf(
 
 @Injectable()
 export class BacktestSharingService {
+  private readonly provenance: DefinitionProvenanceResolver;
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
     @Inject(BACKTESTS_LOGGER) private readonly logger: StructuredLogger,
-  ) {}
+  ) {
+    this.provenance = new DefinitionProvenanceResolver(prisma);
+  }
 
   // -------------------------------------------------------------------------
   // The owner
   // -------------------------------------------------------------------------
 
+  /**
+   * The run's link, if it has one, and what the public report shows about its Strategy and List.
+   *
+   * Before the run is shared, the definitions are computed from its frozen snapshot so the owner can
+   * see what sharing would publish — computed only, never stored: nothing is recorded until the
+   * owner creates the link.
+   */
   async getShare(
     userId: string,
     runId: string,
   ): Promise<BacktestShareResponse> {
     const run = await this.ownedRun(userId, runId);
-    return this.responseOf(run.share);
+    if (run.share) {
+      return this.responseOf(run.id, run.share);
+    }
+    if (run.status !== "COMPLETED" || run.summary === null) {
+      return this.responseOf(run.id, null);
+    }
+    let preview: ShareDefinitions | null = null;
+    try {
+      preview = await this.recordableDefinitions(run.id, run.snapshot);
+    } catch (error) {
+      if (!(error instanceof BacktestShareDefinitionsUnavailableError)) {
+        throw error;
+      }
+    }
+    return this.responseOf(run.id, null, preview);
   }
 
   /**
@@ -171,19 +360,40 @@ export class BacktestSharingService {
   async enableShare(
     userId: string,
     runId: string,
+    options: { publishDescriptions?: boolean } = {},
   ): Promise<BacktestShareResponse> {
     const run = await this.ownedRun(userId, runId);
     if (run.status !== "COMPLETED" || run.summary === null) {
       throw new BacktestNotShareableError();
     }
     if (run.share) {
-      return this.responseOf(run.share);
+      if (options.publishDescriptions === undefined) {
+        return this.responseOf(run.id, run.share);
+      }
+      return this.updatePublication(
+        userId,
+        run,
+        run.share,
+        options.publishDescriptions,
+      );
     }
+
+    // Everything the share records is computed before anything is written, so a definition that
+    // cannot be serialized leaves no link behind — never one with half of what it should hold.
+    const recorded = await this.recordableDefinitions(run.id, run.snapshot);
+    const publishDescriptions = options.publishDescriptions ?? false;
     let share: ShareRow;
     try {
       share = await this.prisma.backtestShare.create({
-        data: { runId: run.id, token: newShareToken() },
-        select: { token: true, createdAt: true },
+        data: {
+          runId: run.id,
+          token: newShareToken(),
+          definitions: recorded.definitions as unknown as Prisma.InputJsonValue,
+          descriptions:
+            recorded.descriptions as unknown as Prisma.InputJsonValue,
+          publishDescriptions,
+        },
+        select: SHARE_SELECT,
       });
     } catch (error) {
       if (!isUniqueViolation(error)) {
@@ -191,20 +401,63 @@ export class BacktestSharingService {
       }
       const existing = await this.prisma.backtestShare.findUnique({
         where: { runId: run.id },
-        select: { token: true, createdAt: true },
+        select: SHARE_SELECT,
       });
       if (!existing) {
         throw error;
       }
-      return this.responseOf(existing);
+      return this.responseOf(run.id, existing);
     }
     // Never the token: it is the link itself.
     this.logger.info({
       event: "backtest.share.enabled",
       actorUserId: userId,
       runId: run.id,
+      strategyOrigin: recorded.definitions.strategy.provenance.origin,
+      listOrigin: recorded.definitions.list.provenance.origin,
+      publishDescriptions,
     });
-    return this.responseOf(share);
+    return this.responseOf(run.id, share);
+  }
+
+  /**
+   * Changes whether an existing link publishes the owner's descriptions. A link created before
+   * definitions were recorded gets them now, from the same frozen snapshot — the owner asked for
+   * this link's report to change, so this is the one moment it may.
+   */
+  private async updatePublication(
+    userId: string,
+    run: { id: string; snapshot: Prisma.JsonValue },
+    share: ShareRow,
+    publishDescriptions: boolean,
+  ): Promise<BacktestShareResponse> {
+    const recorded =
+      share.definitions === null
+        ? await this.recordableDefinitions(run.id, run.snapshot)
+        : null;
+    const updated = await this.prisma.backtestShare.update({
+      where: { runId: run.id },
+      data: {
+        publishDescriptions,
+        ...(recorded
+          ? {
+              definitions:
+                recorded.definitions as unknown as Prisma.InputJsonValue,
+              descriptions:
+                recorded.descriptions as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
+      select: SHARE_SELECT,
+    });
+    this.logger.info({
+      event: "backtest.share.descriptions.updated",
+      actorUserId: userId,
+      runId: run.id,
+      publishDescriptions,
+      definitionsRecorded: recorded !== null,
+    });
+    return this.responseOf(run.id, updated);
   }
 
   /**
@@ -239,7 +492,7 @@ export class BacktestSharingService {
    */
   async readReport(token: string): Promise<SharedBacktestReportResponse> {
     const startedAt = Date.now();
-    const run = await this.sharedRun(token);
+    const { run, share } = await this.sharedRunWithShare(token);
     const equity = await this.prisma.backtestDailyEquity.findMany({
       where: { runId: run.id },
       orderBy: { date: "asc" },
@@ -259,6 +512,10 @@ export class BacktestSharingService {
         curve: downsampleCurve(equity.map(curvePointOf)),
       },
     };
+    const definitions = this.publicDefinitionsOf(run.id, share);
+    if (definitions) {
+      report.definitions = definitions;
+    }
     this.logger.debug({
       event: "backtest.share.report.read",
       runId: run.id,
@@ -339,7 +596,11 @@ export class BacktestSharingService {
     const demos: DemoBacktestResponse[] = [];
     for (const row of rows) {
       const run = row.share.run;
-      if (run.status !== "COMPLETED" || run.summary === null || run.completedAt === null) {
+      if (
+        run.status !== "COMPLETED" ||
+        run.summary === null ||
+        run.completedAt === null
+      ) {
         continue;
       }
       const configuration = sharedConfigurationOf(readSnapshot(run.snapshot));
@@ -406,12 +667,18 @@ export class BacktestSharingService {
       where: { runId: input.runId },
       select: { token: true },
     });
-    return demos.find((demo) => share && demo.path === backtestSharePath(share.token)) ?? null;
+    return (
+      demos.find(
+        (demo) => share && demo.path === backtestSharePath(share.token),
+      ) ?? null
+    );
   }
 
   /** Stops featuring a run. Its share link, if any, is left exactly as it was. */
   async unfeatureDemo(runId: string): Promise<boolean> {
-    const deleted = await this.prisma.demoBacktest.deleteMany({ where: { runId } });
+    const deleted = await this.prisma.demoBacktest.deleteMany({
+      where: { runId },
+    });
     return deleted.count > 0;
   }
 
@@ -425,8 +692,9 @@ export class BacktestSharingService {
       select: {
         id: true,
         status: true,
+        snapshot: true,
         summary: { select: { runId: true } },
-        share: { select: { token: true, createdAt: true } },
+        share: { select: SHARE_SELECT },
       },
     });
     if (!run) {
@@ -441,12 +709,29 @@ export class BacktestSharingService {
    * answer the same.
    */
   private async sharedRun(token: string): Promise<SharedRunRow> {
+    return (await this.sharedRunWithShare(token)).run;
+  }
+
+  private async sharedRunWithShare(
+    token: string,
+  ): Promise<{
+    run: SharedRunRow;
+    share: Pick<
+      ShareRow,
+      "definitions" | "descriptions" | "publishDescriptions"
+    >;
+  }> {
     if (!isBacktestShareToken(token)) {
       throw new SharedBacktestNotFoundError();
     }
     const share = await this.prisma.backtestShare.findUnique({
       where: { token },
-      select: { run: { select: SHARED_RUN_SELECT } },
+      select: {
+        definitions: true,
+        descriptions: true,
+        publishDescriptions: true,
+        run: { select: SHARED_RUN_SELECT },
+      },
     });
     const run = share?.run;
     if (
@@ -457,20 +742,123 @@ export class BacktestSharingService {
     ) {
       throw new SharedBacktestNotFoundError();
     }
-    return run;
+    return { run, share };
+  }
+
+  /**
+   * The canonical documents and descriptions a new share records for this run: serialized from its
+   * frozen snapshot — never from the current Strategy or List — with provenance resolved for each
+   * independently, validated, and described. Throws {@link BacktestShareDefinitionsUnavailableError}
+   * when either cannot be written; the codec's reason is logged, never shown.
+   */
+  private async recordableDefinitions(
+    runId: string,
+    rawSnapshot: Prisma.JsonValue,
+  ): Promise<ShareDefinitions> {
+    const startedAt = Date.now();
+    const snapshot = readSnapshot(rawSnapshot);
+    try {
+      const [strategyProvenance, listProvenance] = await Promise.all([
+        this.provenance.strategyProvenance(snapshot),
+        this.provenance.listProvenance(snapshot),
+      ]);
+      const strategy = serializeSnapshotStrategy(snapshot, strategyProvenance);
+      const list = serializeSnapshotList(snapshot, listProvenance);
+      const recorded: ShareDefinitions = {
+        definitions: { strategy, list },
+        descriptions: {
+          strategy: describeDefinition(strategy),
+          list: describeDefinition(list),
+        },
+      };
+      this.logger.debug({
+        event: "backtest.share.definitions.recorded",
+        runId,
+        strategyOrigin: strategyProvenance.origin,
+        listOrigin: listProvenance.origin,
+        durationMs: Date.now() - startedAt,
+      });
+      return recorded;
+    } catch (error) {
+      if (error instanceof CanonicalDefinitionError) {
+        this.logger.error({
+          event: "backtest.share.definitions.failed",
+          runId,
+          issues: error.issues.slice(0, 5),
+          durationMs: Date.now() - startedAt,
+          err: error,
+        });
+        throw new BacktestShareDefinitionsUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  private publicDefinitionsOf(
+    runId: string,
+    share: Pick<
+      ShareRow,
+      "definitions" | "descriptions" | "publishDescriptions"
+    >,
+  ): SharedBacktestDefinitionsResponse | undefined {
+    const recorded = recordedDefinitions(share, this.logger, runId);
+    if (!recorded) {
+      return undefined;
+    }
+    return {
+      strategy: sharedDefinitionOf(
+        recorded.definitions.strategy,
+        recorded.descriptions.strategy,
+        share.publishDescriptions,
+      ),
+      list: sharedDefinitionOf(
+        recorded.definitions.list,
+        recorded.descriptions.list,
+        share.publishDescriptions,
+      ),
+    };
   }
 
   private publicUrl(token: string): string {
     return `${this.config.webBaseUrl}${backtestSharePath(token)}`;
   }
 
-  private responseOf(share: ShareRow | null): BacktestShareResponse {
+  private responseOf(
+    runId: string,
+    share: ShareRow | null,
+    preview: ShareDefinitions | null = null,
+  ): BacktestShareResponse {
+    const recorded = share
+      ? recordedDefinitions(share, this.logger, runId)
+      : preview;
+    const definitions = recorded
+      ? {
+          definitions: {
+            strategy: ownerDefinitionOf(
+              recorded.definitions.strategy,
+              recorded.descriptions.strategy,
+            ),
+            list: ownerDefinitionOf(
+              recorded.definitions.list,
+              recorded.descriptions.list,
+            ),
+          },
+        }
+      : {};
     return share
       ? {
           shared: true,
           url: this.publicUrl(share.token),
           sharedAt: share.createdAt.toISOString(),
+          publishDescriptions: share.publishDescriptions,
+          ...definitions,
         }
-      : { shared: false, url: null, sharedAt: null };
+      : {
+          shared: false,
+          url: null,
+          sharedAt: null,
+          publishDescriptions: false,
+          ...definitions,
+        };
   }
 }

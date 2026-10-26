@@ -4,6 +4,7 @@ import {
   BACKTEST_SHARE_TOKEN_BYTES,
   backtestSharePath,
   backtestSharePreviewImagePath,
+  definitionDescriptionPublication,
   isBacktestShareToken,
   sampleSharedBacktestPreview,
   SHARED_BACKTEST_PREVIEW_MAX_POINTS,
@@ -156,5 +157,58 @@ describe("sampleSharedBacktestPreview", () => {
       SHARED_BACKTEST_PREVIEW_MAX_POINTS,
     );
     expect(sampled.every((point) => point.benchmarkValue === null)).toBe(true);
+  });
+});
+
+describe("definitionDescriptionPublication", () => {
+  it("publishes official non-premium content always, the owner's own only on opt-in", () => {
+    for (const type of ["strategy", "list"] as const) {
+      expect(
+        definitionDescriptionPublication({
+          type,
+          origin: "built_in",
+          premium: false,
+        }),
+      ).toBe("always");
+      for (const origin of ["custom", "derived", "unknown"] as const) {
+        expect(
+          definitionDescriptionPublication({ type, origin, premium: false }),
+        ).toBe("opt_in");
+      }
+    }
+  });
+
+  it("never publishes a premium strategy's rules, or rules derived from one", () => {
+    expect(
+      definitionDescriptionPublication({
+        type: "strategy",
+        origin: "built_in",
+        premium: true,
+      }),
+    ).toBe("never");
+    expect(
+      definitionDescriptionPublication({
+        type: "strategy",
+        origin: "derived",
+        premium: true,
+      }),
+    ).toBe("never");
+  });
+
+  it("describes a premium list publicly: its description never names a member", () => {
+    expect(
+      definitionDescriptionPublication({
+        type: "list",
+        origin: "built_in",
+        premium: true,
+      }),
+    ).toBe("always");
+    expect(
+      definitionDescriptionPublication({
+        type: "list",
+        origin: "derived",
+        premium: true,
+      }),
+    ).toBe("opt_in");
   });
 });

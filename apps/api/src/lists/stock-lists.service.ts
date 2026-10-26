@@ -30,6 +30,11 @@ import {
   type ContentViewer,
 } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
+import {
+  AUTHORED_LIST_ORIGIN,
+  copiedListOrigin,
+  listMembershipFingerprint,
+} from "../definitions/content-origin";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { LISTS_LOGGER } from "./lists.tokens";
 
@@ -131,7 +136,8 @@ function itemResponse(item: ItemRow): StockListItemResponse {
     buyWindowMode: item.buyWindowMode,
     buyWindows: item.buyWindows.map((window) => ({
       startDate: fromDatabaseDate(window.startDate),
-      endDate: window.endDate === null ? null : fromDatabaseDate(window.endDate),
+      endDate:
+        window.endDate === null ? null : fromDatabaseDate(window.endDate),
     })),
   };
 }
@@ -205,10 +211,7 @@ function detailResponse(
 }
 
 /** Membership renders in the order stocks were added; ids break created-in-same-tick ties. */
-const ITEMS_ORDER = [
-  { createdAt: "asc" as const },
-  { id: "asc" as const },
-];
+const ITEMS_ORDER = [{ createdAt: "asc" as const }, { id: "asc" as const }];
 
 /**
  * Translates a foreign-key violation from a membership write into the same stable product error
@@ -276,27 +279,24 @@ export class StockListsService {
    * The Lists a viewer can use: every built-in first, in operator order, then the caller's own,
    * newest first. A Guest sees the built-ins only.
    */
-  async listForUser(viewer: ContentViewer): Promise<StockListSummaryResponse[]> {
+  async listForUser(
+    viewer: ContentViewer,
+  ): Promise<StockListSummaryResponse[]> {
     const lists = await this.prisma.stockList.findMany({
       where: readableWhere(viewer),
-      orderBy: [
-        ...SYSTEM_FIRST_ORDER,
-        { createdAt: "desc" },
-        { id: "desc" },
-      ],
+      orderBy: [...SYSTEM_FIRST_ORDER, { createdAt: "desc" }, { id: "desc" }],
       include: { _count: { select: { items: true } } },
     });
     const universes = new Map<string, StockListUniverseResponse>();
     for (const list of lists) {
       const universe = maintainedUniverse(list);
       if (universe) {
-        universes.set(
-          list.id,
-          await this.measureUniverseOnce(list, universe),
-        );
+        universes.set(list.id, await this.measureUniverseOnce(list, universe));
       }
     }
-    return lists.map((list) => this.summaryOf(list, viewer, universes.get(list.id)));
+    return lists.map((list) =>
+      this.summaryOf(list, viewer, universes.get(list.id)),
+    );
   }
 
   /**
@@ -342,7 +342,10 @@ export class StockListsService {
   private async measureUniverse(
     listId: string,
     universe: PointInTimeIndexUniverse,
-    loaded?: readonly { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: { startDate: Date; endDate: Date | null }[] }[],
+    loaded?: readonly {
+      buyWindowMode: "FULL" | "CUSTOM";
+      buyWindows: { startDate: Date; endDate: Date | null }[];
+    }[],
   ): Promise<StockListUniverseResponse> {
     const items =
       loaded ??
@@ -359,7 +362,8 @@ export class StockListsService {
         mode: item.buyWindowMode,
         ranges: item.buyWindows.map((window) => ({
           startDate: fromDatabaseDate(window.startDate),
-          endDate: window.endDate === null ? null : fromDatabaseDate(window.endDate),
+          endDate:
+            window.endDate === null ? null : fromDatabaseDate(window.endDate),
         })),
       })),
       new Date().toISOString().slice(0, 10),
@@ -465,6 +469,8 @@ export class StockListsService {
           userId,
           name: input.name,
           description: input.description ?? null,
+          // Recorded so a shared backtest can call this list custom on evidence, never by guess.
+          ...AUTHORED_LIST_ORIGIN,
           items: {
             create: input.securityIds.map((securityId) => ({ securityId })),
           },
@@ -525,6 +531,9 @@ export class StockListsService {
             premium: true,
             systemKey: true,
             description: true,
+            origin: true,
+            originSystemKey: true,
+            originMembershipDigest: true,
             items: {
               orderBy: ITEMS_ORDER,
               select: {
@@ -552,11 +561,27 @@ export class StockListsService {
         // Members render in the order they were added, so each gets its own creation instant, in the
         // source's order. Sharing one would leave the copy's order to its new, random ids.
         const createdAt = Date.now();
+        // What the source holds at this moment, fingerprinted the way a run's frozen List is, so a
+        // later run of the copy can be told apart from the built-in it began as.
+        const sourceMembership = listMembershipFingerprint(
+          source.items.map((item) => ({
+            securityId: item.securityId,
+            buyWindowMode: item.buyWindowMode,
+            buyWindows: item.buyWindows.map((window) => ({
+              startDate: fromDatabaseDate(window.startDate),
+              endDate:
+                window.endDate === null
+                  ? null
+                  : fromDatabaseDate(window.endDate),
+            })),
+          })),
+        );
         const list = await tx.stockList.create({
           data: {
             userId,
             name: input.name,
             description: source.description,
+            ...copiedListOrigin(source, sourceMembership),
             items: {
               create: source.items.map((item, index) => ({
                 securityId: item.securityId,
@@ -627,7 +652,9 @@ export class StockListsService {
       list,
       this.complianceOf(list, viewer, list.items.length),
       viewer,
-      universe ? await this.measureUniverse(list.id, universe, list.items) : undefined,
+      universe
+        ? await this.measureUniverse(list.id, universe, list.items)
+        : undefined,
     );
   }
 
@@ -702,7 +729,9 @@ export class StockListsService {
     } catch (error) {
       if (isForeignKeyViolation(error)) {
         throw new StockListInUseByMonitorError(
-          await this.prisma.monitor.count({ where: { stockListId: listId, userId } }),
+          await this.prisma.monitor.count({
+            where: { stockListId: listId, userId },
+          }),
         );
       }
       throw error;

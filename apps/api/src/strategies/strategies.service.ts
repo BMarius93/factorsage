@@ -33,6 +33,10 @@ import {
   type ContentViewer,
 } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
+import {
+  AUTHORED_STRATEGY_ORIGIN,
+  copiedStrategyOrigin,
+} from "../definitions/content-origin";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { STRATEGIES_LOGGER } from "./strategies.tokens";
 import type { ParsedUpdateStrategyRequest } from "./strategy-requests";
@@ -357,6 +361,8 @@ export class StrategiesService {
         userId,
         name: input.name,
         description: input.description,
+        // Recorded so a shared backtest can call this strategy custom on evidence, never by guess.
+        ...AUTHORED_STRATEGY_ORIGIN,
         versions: {
           create: {
             versionNumber: 1,
@@ -432,11 +438,18 @@ export class StrategiesService {
     // And then a copy is a write like any other.
     await this.assertScopesWritable(definition);
 
+    const sourceVersion = source.versions[0];
+    if (!sourceVersion) {
+      throw new StrategyNotFoundError();
+    }
     const row = await this.prisma.strategy.create({
       data: {
         userId,
         name: input.name,
         description: source.description,
+        // Where the copy came from — the built-in at the root of the copy chain and what it was —
+        // so a later run of it can be called built-in, derived or custom on evidence.
+        ...copiedStrategyOrigin(source, sourceVersion),
         versions: {
           create: {
             versionNumber: 1,

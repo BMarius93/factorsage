@@ -56,6 +56,122 @@ export type BacktestShareResponse = {
   url: string | null;
   /** When the current link was created; null while the run is not shared. */
   sharedAt: string | null;
+  /**
+   * Whether the owner publishes the descriptions of a custom, derived or unrecorded Strategy or List
+   * on the public report. Off until the owner turns it on; false while the run is not shared.
+   */
+  publishDescriptions: boolean;
+  /**
+   * What the public report shows — or, before the run is shared, would show — about the run's
+   * Strategy and List. Absent for a link created before definitions were recorded with shares, which
+   * keeps exactly the report it always had, and when the run's definitions cannot be described.
+   */
+  definitions?: {
+    strategy: BacktestShareDefinitionResponse;
+    list: BacktestShareDefinitionResponse;
+  };
+};
+
+/**
+ * The `code` of the `409` refusing to create a link because the run's Strategy or List could not be
+ * recorded as a canonical definition. Nothing is created in that case.
+ */
+export const BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE_CODE =
+  "BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE" as const;
+
+/**
+ * `PUT /backtests/{runId}/share`'s optional body. Absent, an existing link keeps its setting and a
+ * new one starts with descriptions unpublished.
+ */
+export type UpdateBacktestShareRequest = {
+  publishDescriptions?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Definitions on a shared report (`docs/decisions/canonical-definitions-v1.md`)
+// ---------------------------------------------------------------------------
+
+/** Where a run's Strategy or List came from. `unknown` when what is recorded cannot tell. */
+export const SHARED_DEFINITION_ORIGINS = [
+  "built_in",
+  "custom",
+  "derived",
+  "unknown",
+] as const;
+export type SharedDefinitionOrigin = (typeof SHARED_DEFINITION_ORIGINS)[number];
+
+/**
+ * When a definition's generated description reaches the public report.
+ *
+ * - `always` — official, non-premium built-in content, whose rules every viewer may already read;
+ *   and every built-in List, whose description never names a member — the only part of a premium
+ *   List that is restricted.
+ * - `opt_in` — the owner's own content — custom, derived or of unrecorded origin — only when the
+ *   owner chooses to publish it, because it states the strategy's conditions, metrics, operators
+ *   and thresholds.
+ * - `never` — a premium built-in Strategy's rules, or rules derived from one: premium rules are
+ *   read only on a plan that includes premium content (`docs/decisions/entitlements-v2.md` §6),
+ *   and a public link must not be the way around that.
+ */
+export const DEFINITION_DESCRIPTION_PUBLICATIONS = [
+  "always",
+  "opt_in",
+  "never",
+] as const;
+export type DefinitionDescriptionPublication =
+  (typeof DEFINITION_DESCRIPTION_PUBLICATIONS)[number];
+
+/**
+ * The one publication rule, shared by the API that enforces it and the page that explains it.
+ * `premium` is whether the built-in the definition is, or was derived from, is premium content.
+ */
+export function definitionDescriptionPublication(input: {
+  type: "strategy" | "list";
+  origin: SharedDefinitionOrigin;
+  premium: boolean;
+}): DefinitionDescriptionPublication {
+  if (
+    input.type === "strategy" &&
+    input.premium &&
+    (input.origin === "built_in" || input.origin === "derived")
+  ) {
+    return "never";
+  }
+  return input.origin === "built_in" ? "always" : "opt_in";
+}
+
+/** The owner's view of one definition on their share. */
+export type BacktestShareDefinitionResponse = {
+  origin: SharedDefinitionOrigin;
+  /** The official name of the built-in it is, or was derived from. Never the owner's own name. */
+  builtInName?: string;
+  publication: DefinitionDescriptionPublication;
+  /** The generated short description, so the owner sees what publishing it would show. */
+  short: string;
+};
+
+/**
+ * What a public reader learns about the Strategy or the List a shared run executed: where it came
+ * from, and — only when the publication rule allows it — a generated description.
+ *
+ * Never the canonical document itself, never an id, never a customer's own name for their content,
+ * and never a security: a List's description counts and explains its membership without naming one.
+ */
+export type SharedDefinitionResponse = {
+  origin: SharedDefinitionOrigin;
+  /**
+   * The official FactorSage name of the built-in this definition is, or the built-in a derived one
+   * was created from. Absent for custom content and an unrecorded origin.
+   */
+  builtInName?: string;
+  description:
+    | { status: "published"; short: string; detailed: string }
+    | { status: "withheld"; reason: "owner" | "premium" };
+};
+
+export type SharedBacktestDefinitionsResponse = {
+  strategy: SharedDefinitionResponse;
+  list: SharedDefinitionResponse;
 };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +269,13 @@ export type SharedBacktestReportResponse = {
   completedAt: string;
   configuration: SharedBacktestConfigurationResponse;
   result: SharedBacktestResultResponse;
+  /**
+   * Where the run's Strategy and List came from, and their descriptions where the owner and the
+   * publication rule allow. Recorded when the link was created, from the run's frozen snapshot, and
+   * never re-derived from the current Strategy or List. Absent for a link created before
+   * definitions were recorded with shares: that report reads exactly as it always has.
+   */
+  definitions?: SharedBacktestDefinitionsResponse;
 };
 
 // ---------------------------------------------------------------------------

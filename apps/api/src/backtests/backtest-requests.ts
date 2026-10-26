@@ -1,6 +1,7 @@
 import {
   addYears,
   BACKTEST_INVALID_CODE,
+  type UpdateBacktestShareRequest,
   BACKTEST_TRADE_ACTIONS,
   BACKTEST_TRADE_DEFAULT_ORDER,
   BACKTEST_TRADE_ORDERS,
@@ -434,4 +435,30 @@ function parsePositiveInteger(value: unknown): number | undefined {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : undefined;
+}
+
+/**
+ * `PUT /backtests/{runId}/share`'s optional body: nothing at all, or `{ publishDescriptions }` with
+ * a boolean. Anything else is refused rather than ignored, so a client can never believe it set a
+ * publication choice the server did not record.
+ */
+export function parseShareRequest(body: unknown): UpdateBacktestShareRequest {
+  if (body === undefined || body === null) {
+    return {};
+  }
+  const record = asRecord(body);
+  for (const key of Object.keys(record)) {
+    if (key !== "publishDescriptions") {
+      throw backtestInvalid(
+        `Invalid request: \`${key}\` is not part of a share.`,
+      );
+    }
+  }
+  if (record.publishDescriptions === undefined) {
+    return {};
+  }
+  if (typeof record.publishDescriptions !== "boolean") {
+    throw backtestInvalid("`publishDescriptions` must be true or false.");
+  }
+  return { publishDescriptions: record.publishDescriptions };
 }

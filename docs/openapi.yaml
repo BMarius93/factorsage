@@ -1890,6 +1890,12 @@ paths:
       summary: Whether the caller's run is shared, and its public link.
       description: |
         Owner only. Another user's run answers exactly like one that does not exist.
+
+        `definitions` says what the public report shows — or, before the run is shared, would
+        show — about the run's Strategy and List: their origin and generated short description,
+        and when each description is published (`docs/decisions/canonical-definitions-v1.md`).
+        Before sharing it is computed from the frozen snapshot and recorded nowhere. It is absent
+        for a link created before definitions were recorded, and when they cannot be described.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: standard-read }
       responses:
@@ -1911,8 +1917,23 @@ paths:
         Idempotent. A run holds at most one active link: asking again returns the same URL. The
         token is 256 random bits and never contains a database identifier. Only a `COMPLETED` run
         with a stored result can be shared; any other state answers `409`. No entitlement applies.
+
+        A new link records the canonical definitions of the Strategy and the List the run
+        executed — serialized from its frozen snapshot, with provenance and generated
+        descriptions — in the same write that creates it; when either cannot be recorded, no link
+        is created and the answer is `409` `BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE`.
+
+        The optional body sets `publishDescriptions`: whether the descriptions of a custom,
+        derived or unrecorded Strategy or List appear on the public report. Without a body an
+        existing link keeps its setting and a new one starts with it off. Setting it on a link
+        created before definitions were recorded records them then, from the same snapshot.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateBacktestShareRequest" }
       responses:
         "200":
           description: The run's active link.
@@ -1920,11 +1941,15 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BacktestShare" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "409":
-          description: The run is not completed, so it has no result to share.
+          description: |
+            The run is not completed, so it has no result to share; or its Strategy or List could
+            not be recorded as a canonical definition (`code`
+            `BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE`), so no link was created.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -4593,7 +4618,8 @@ components:
           type: array
           description: The newest point of each blend in the window, with its own valuation date.
           items: { $ref: "#/components/schemas/IntrinsicValueBlend" }
-        valuationRatios: { $ref: "#/components/schemas/StockSummaryValuationRatios" }
+        valuationRatios:
+          { $ref: "#/components/schemas/StockSummaryValuationRatios" }
         fundamentals:
           type: array
           description: All fifteen Fundamental Metrics, in catalog order.
@@ -5810,7 +5836,15 @@ components:
     BacktestRunStatus:
       type: string
       enum:
-        [QUEUED, PREPARING_DATA, RUNNING, FINALIZING, COMPLETED, FAILED, CANCELLED]
+        [
+          QUEUED,
+          PREPARING_DATA,
+          RUNNING,
+          FINALIZING,
+          COMPLETED,
+          FAILED,
+          CANCELLED,
+        ]
       description: |
         `COMPLETED`, `FAILED` and `CANCELLED` are terminal. A `CANCELLED` run was stopped by its
         owner and holds no result.
@@ -5823,9 +5857,19 @@ components:
       properties:
         ahead: { type: integer, minimum: 0 }
         executing:
-          { type: integer, minimum: 0, description: Backtests executing right now, deployment-wide. }
+          {
+            type: integer,
+            minimum: 0,
+            description: Backtests executing right now,
+            deployment-wide.,
+          }
         capacity:
-          { type: integer, minimum: 1, description: How many may execute at once, deployment-wide. }
+          {
+            type: integer,
+            minimum: 1,
+            description: How many may execute at once,
+            deployment-wide.,
+          }
     BacktestCancellation:
       type: object
       description: |
@@ -6170,7 +6214,17 @@ components:
         One page of the caller's backtest runs: searched, filtered, ordered and counted in the
         database, so every count and page describes the whole history.
       required:
-        [runs, page, pageSize, totalCount, pageCount, unfilteredCount, q, status, sort]
+        [
+          runs,
+          page,
+          pageSize,
+          totalCount,
+          pageCount,
+          unfilteredCount,
+          q,
+          status,
+          sort,
+        ]
       properties:
         runs:
           type: array
@@ -6658,7 +6712,7 @@ components:
     BacktestShare:
       type: object
       description: The owner's view of a run's public link.
-      required: [shared, url, sharedAt]
+      required: [shared, url, sharedAt, publishDescriptions]
       properties:
         shared: { type: boolean }
         url:
@@ -6667,6 +6721,48 @@ components:
         sharedAt:
           description: When the current link was created. Null while not shared.
           oneOf: [{ type: string, format: date-time }, { type: "null" }]
+        publishDescriptions:
+          type: boolean
+          description: |
+            Whether the owner publishes the descriptions of a custom, derived or unrecorded
+            Strategy or List. False while the run is not shared.
+        definitions:
+          type: object
+          description: |
+            What the public report shows, or would show, about the run's Strategy and List.
+            Absent for a link created before definitions were recorded with shares.
+          required: [strategy, list]
+          properties:
+            strategy: { $ref: "#/components/schemas/BacktestShareDefinition" }
+            list: { $ref: "#/components/schemas/BacktestShareDefinition" }
+    UpdateBacktestShareRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        publishDescriptions:
+          type: boolean
+          description: Publish the descriptions of the owner's own Strategy and List.
+    SharedDefinitionOrigin:
+      type: string
+      enum: [built_in, custom, derived, unknown]
+      description: |
+        Where a definition came from, on evidence — ownership, the copy record, the copy's frozen
+        logic or membership — and never by name. `unknown` when what is recorded cannot tell.
+    BacktestShareDefinition:
+      type: object
+      required: [origin, publication, short]
+      properties:
+        origin: { $ref: "#/components/schemas/SharedDefinitionOrigin" }
+        builtInName:
+          type: string
+          description: The official name of the built-in it is, or was derived from.
+        publication:
+          type: string
+          enum: [always, opt_in, never]
+          description: |
+            `always` — a non-premium built-in Strategy, or any built-in List; `opt_in` — only
+            when `publishDescriptions` is on; `never` — a premium built-in Strategy's rules.
+        short: { type: string, description: The generated short description. }
 
     # -------------------------------------------------------------------------------------------
     # Shared backtests
@@ -6747,6 +6843,30 @@ components:
         benchmarkMaxDrawdownPercent:
           { $ref: "#/components/schemas/NullableNumber" }
         totalTrades: { type: integer, minimum: 0 }
+    SharedDefinition:
+      type: object
+      description: |
+        What a public reader learns about the run's Strategy or List: its origin, the official
+        name of the built-in behind it, and a generated description where the owner and the
+        publication rule allow. Never the canonical document, an id, a customer's own name, or a
+        security.
+      required: [origin, description]
+      properties:
+        origin: { $ref: "#/components/schemas/SharedDefinitionOrigin" }
+        builtInName: { type: string }
+        description:
+          oneOf:
+            - type: object
+              required: [status, short, detailed]
+              properties:
+                status: { type: string, const: published }
+                short: { type: string }
+                detailed: { type: string }
+            - type: object
+              required: [status, reason]
+              properties:
+                status: { type: string, const: withheld }
+                reason: { type: string, enum: [owner, premium] }
     SharedBacktestReport:
       type: object
       required: [runNumber, url, completedAt, configuration, result]
@@ -6759,7 +6879,8 @@ components:
             Never the run's UUID: no database identity crosses the public link.
         url: { type: string, format: uri }
         completedAt: { type: string, format: date-time }
-        configuration: { $ref: "#/components/schemas/SharedBacktestConfiguration" }
+        configuration:
+          { $ref: "#/components/schemas/SharedBacktestConfiguration" }
         result:
           type: object
           required: [summary, annualReturns, curve]
@@ -6772,6 +6893,15 @@ components:
               type: array
               description: The owner's page's own chart curve, point for point.
               items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+        definitions:
+          type: object
+          description: |
+            The run's Strategy and List, recorded when the link was created from the frozen
+            snapshot. Absent for a link created before definitions were recorded.
+          required: [strategy, list]
+          properties:
+            strategy: { $ref: "#/components/schemas/SharedDefinition" }
+            list: { $ref: "#/components/schemas/SharedDefinition" }
     SharedBacktestPreviewPoint:
       type: object
       required: [date, strategyValue, benchmarkValue]
@@ -6789,7 +6919,8 @@ components:
           items: { $ref: "#/components/schemas/DemoBacktest" }
     DemoBacktest:
       type: object
-      required: [title, description, path, url, completedAt, configuration, headline]
+      required:
+        [title, description, path, url, completedAt, configuration, headline]
       properties:
         title: { type: string }
         description: { type: [string, "null"] }
@@ -6808,7 +6939,8 @@ components:
       properties:
         configuration:
           type: object
-          required: [startDate, endDate, benchmark, securityCount, strategyRuleCount]
+          required:
+            [startDate, endDate, benchmark, securityCount, strategyRuleCount]
           properties:
             startDate: { type: string, format: date }
             endDate: { type: string, format: date }
@@ -6826,10 +6958,13 @@ components:
               maxDrawdownPercent,
             ]
           properties:
-            portfolioCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
-            benchmarkCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+            portfolioCagrPercent:
+              { $ref: "#/components/schemas/NullableNumber" }
+            benchmarkCagrPercent:
+              { $ref: "#/components/schemas/NullableNumber" }
             portfolioReturnPercent: { type: number }
-            benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+            benchmarkReturnPercent:
+              { $ref: "#/components/schemas/NullableNumber" }
             maxDrawdownPercent: { type: number }
         series:
           type: array
@@ -7614,7 +7749,8 @@ components:
         ]
       properties:
         plan:
-          oneOf: [{ type: string, enum: [STARTER, PRO, PRO_PLUS] }, { type: "null" }]
+          oneOf:
+            [{ type: string, enum: [STARTER, PRO, PRO_PLUS] }, { type: "null" }]
         interval:
           oneOf:
             [{ $ref: "#/components/schemas/BillingInterval" }, { type: "null" }]

@@ -30,7 +30,10 @@ import {
   UseFilters,
   UseGuards,
 } from "@nestjs/common";
-import { BACKTEST_NOT_CANCELLABLE_CODE } from "@intrinsic/contracts";
+import {
+  BACKTEST_NOT_CANCELLABLE_CODE,
+  BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE_CODE,
+} from "@intrinsic/contracts";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
@@ -38,11 +41,13 @@ import {
   backtestInvalid,
   parseCreateBacktestRunRequest,
   parseRunListRequest,
+  parseShareRequest,
   parseTradeLogQuery,
   parseTradePageRequest,
 } from "./backtest-requests";
 import {
   BacktestNotShareableError,
+  BacktestShareDefinitionsUnavailableError,
   BacktestSharingService,
 } from "./backtest-sharing.service";
 import { BacktestQueueFullFilter } from "./backtest-queue-full.filter";
@@ -236,14 +241,22 @@ export class BacktestsController {
    * Shares a completed run: creates its public link, or returns the one it already has. `PUT`
    * because it is idempotent — a run holds at most one active link. A run that is not completed
    * answers `409`: its state, not the request, is what prevents it.
+   *
+   * The optional body sets whether the owner's own descriptions are published
+   * (`docs/decisions/canonical-definitions-v1.md`); without one an existing link keeps its setting
+   * and a new link starts with them unpublished.
    */
   @RateLimit("mutation")
   @Put(":runId/share")
   async enableShare(
     @CurrentUser() user: AuthUser,
     @Param("runId") runId: string,
+    @Body() body: unknown,
   ): Promise<BacktestShareResponse> {
-    return this.execute(() => this.sharing.enableShare(user.id, runId));
+    const request = parseShareRequest(body);
+    return this.execute(() =>
+      this.sharing.enableShare(user.id, runId, request),
+    );
   }
 
   /**
@@ -278,6 +291,13 @@ export class BacktestsController {
       }
       if (error instanceof BacktestNotShareableError) {
         throw new ConflictException(error.message);
+      }
+      if (error instanceof BacktestShareDefinitionsUnavailableError) {
+        throw new ConflictException({
+          statusCode: HttpStatus.CONFLICT,
+          message: error.message,
+          code: BACKTEST_SHARE_DEFINITIONS_UNAVAILABLE_CODE,
+        });
       }
       if (error instanceof BacktestNotCancellableError) {
         throw new ConflictException({
