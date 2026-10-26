@@ -203,6 +203,47 @@ describe("BacktestRunView", () => {
     expect(configuration.textContent).not.toContain("Queued");
   });
 
+  it("discloses a retrospectively classified universe beside the run's configuration", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        configuration: testConfiguration({
+          stockListName: "S&P 500 Defensive",
+          stockListClassification: {
+            timing: "RETROSPECTIVE",
+            scheme: "CURRENT_SECTOR",
+            methodLabel: "Current sector applied retrospectively",
+            underlyingIndex: "S&P 500",
+            sectors: ["Consumer Staples", "Health Care", "Utilities"],
+            disclosure:
+              "Historical S&P 500 membership with retrospective sector classification. Sector assignments reflect currently available classifications and may differ from historical classifications.",
+          },
+        }),
+        result: testResult(),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const notice = screen.getByTestId("backtest-universe-classification");
+    expect(notice.textContent).toContain("Retrospective sector classification");
+    expect(notice.textContent).toContain("may differ from historical classifications");
+    expect(notice.textContent).toContain(
+      "Current sector applied retrospectively: Consumer Staples, Health Care, Utilities.",
+    );
+  });
+
+  it("shows no classification notice for a run over an ordinary List", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { configuration: testConfiguration(), result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    expect(screen.queryByTestId("backtest-universe-classification")).toBeNull();
+  });
+
   it("keeps a deleted strategy's and list's snapshot names in the header, unlinked", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", {

@@ -6,11 +6,12 @@ import {
   type Prisma,
   type PrismaClient,
 } from "@intrinsic/database";
-import type {
-  IndexConstituentResolution,
-  IndexMembershipPeriodQuality,
-  LocalDate,
-  MarketIndexKey,
+import {
+  PROTECTED_TIER_INDEX_KEYS,
+  type IndexConstituentResolution,
+  type IndexMembershipPeriodQuality,
+  type LocalDate,
+  type MarketIndexKey,
 } from "@intrinsic/domain";
 import type {
   ConstituentResolutionWrite,
@@ -558,14 +559,20 @@ function qualityOf(quality: IndexMembershipPeriodQuality): QualityEnum {
 
 /**
  * The protected tier's canonical universe (`docs/decisions/stock-cache-tiers-v1.md`): every security
- * a built-in point-in-time universe admits — any index, current and former constituents alike,
- * resolved `RESOLVED` or `RESOLVED_PARTIAL`. Historical membership is enough.
+ * a **protected** index admits (`PROTECTED_TIER_INDEX_KEYS`: the S&P 500), current and former
+ * constituents alike, resolved `RESOLVED` or `RESOLVED_PARTIAL`. Historical membership is enough.
+ *
+ * Other indexes' constituents are not protected merely because their membership is stored
+ * (`docs/decisions/historical-universes-v1.md` §7): a Nasdaq-100 or Dow run reads them through the
+ * bounded LRU and PostgreSQL like any other security, and the S&P 500 members among them are
+ * protected already.
  */
 export async function loadProtectedTierSecurityIds(
   prisma: Pick<PrismaClient, "indexConstituent">,
 ): Promise<string[]> {
   const rows = await prisma.indexConstituent.findMany({
     where: {
+      indexKey: { in: PROTECTED_TIER_INDEX_KEYS.map(indexKeyOf) },
       resolution: {
         in: [ResolutionEnum.RESOLVED, ResolutionEnum.RESOLVED_PARTIAL],
       },

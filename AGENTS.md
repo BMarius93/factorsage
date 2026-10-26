@@ -4,16 +4,28 @@ Read `ai/README.md` before substantial work.
 
 ## Product invariants
 
-1. Historical index membership is reconstructed for **one** universe only: the S&P 500, into the
-   built-in SYSTEM List `sp500-historical-pit` (`docs/decisions/sp500-historical-pit-v1.md`). Its
-   canonical membership lives in PostgreSQL (`IndexConstituentChange`, `IndexConstituent`,
-   `IndexMembershipPeriod`), reconstructed from the provider's index history and identity data,
-   projected into CUSTOM buy windows by `pnpm data:index-universe -- project`, and never edited
-   through the List routes. Membership is never invented and never substituted with today's
-   constituents: a constituent the provider cannot price or identify is reported, not traded, and a
-   boundary the provider's dates leave in doubt is placed so membership never starts early (§4 of
-   the decision). No other index is synced or reconstructed. Point-in-time membership a user supplies is a different
-   thing and is supported — see invariant 3.
+1. Historical index membership is reconstructed for three indices — the S&P 500, the Nasdaq-100
+   and the Dow Jones Industrial Average (`docs/decisions/sp500-historical-pit-v1.md`,
+   `docs/decisions/historical-universes-v1.md`). Their canonical membership lives in PostgreSQL
+   (`IndexConstituentChange`, `IndexConstituent`, `IndexMembershipPeriod`), reconstructed from the
+   provider's index history and identity data — plus reviewed, documented change-log corrections
+   where the provider's log omits a published change — and never edited through the List routes.
+   Membership is never invented and never substituted with today's constituents: a constituent the
+   provider cannot price or identify is reported, not traded, and a boundary the provider's dates
+   leave in doubt is placed so membership never starts early (§4 of the S&P 500 decision). The
+   catalog's other universes (`packages/domain/src/historical-universes.ts`) are **generated** from
+   that membership and PostgreSQL's point-in-time data only — rankings read only data available on
+   the reconstitution date, take effect the next session and are clipped to the parent membership —
+   and reach a List only through `pnpm data:historical-universes -- publish` after validating, from
+   their reliable period. A universe needing data no source provides (the sectors' historical GICS
+   classification) stays `BLOCKED`; today's classification is never applied to the past — with one
+   owner-approved, disclosed exception: the three economic supersectors (S&P 500 Cyclical,
+   Defensive, Sensitive; §2.1 of the historical-universes decision) group the S&P 500's
+   point-in-time membership by each company's **current** sector, labelled "retrospective
+   classification" on every surface, with unclassified companies reported, never guessed. The S&P
+   500's List is projected by `pnpm data:index-universe -- project`; every other universe's by
+   `publish`. Point-in-time membership a user supplies is a different thing and is supported — see
+   invariant 3.
 2. Stock lists are static universes owned by a user or by the system (built-in content, see
    invariant 21); membership references the canonical `Security` catalog, never free-text symbols.
 3. Each list membership defines buy eligibility:
@@ -165,7 +177,8 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     fails on one, and `REDIS_ACCEPTED_EVICTION_POLICY` is the only, explicit override.
     The stock cache has **two residency tiers over one key family**
     (`docs/decisions/stock-cache-tiers-v1.md`, `docs/decisions/protected-stock-tier-v1.md`): the
-    **protected tier** — every security a built-in point-in-time universe admits in PostgreSQL,
+    **protected tier** — every security the S&P 500 universe admits in PostgreSQL
+    (`PROTECTED_TIER_INDEX_KEYS`; the Nasdaq-100 and Dow are reconstructed but not protected),
     current and former members alike — resident outside the LRU, never a victim, and with no TTL on
     any key, in flight or READY; and the **LRU tier** for everything else, bounded by
     `STOCK_LRU_MAX_SECURITIES` distinct securities (a count, never bytes). Every admission routes
@@ -260,7 +273,8 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
     only per-user state (`UserBuiltInMonitorPreference`), and it never changes the shared
     evaluation (`docs/decisions/monitor-eod-v2.md` §12.4). A signed-in
     customer may still **duplicate** a built-in List or Strategy on purpose: the copy is ordinary
-    USER content they own, detached from the built-in and held to their plan. A built-in may be
+    USER content they own, detached from the built-in and held to their plan — except a maintained
+    historical universe, which is never copied (`409`, every plan). A built-in may be
     **premium** (only SYSTEM content can be; every point-in-time universe is): readable by name and
     size to everyone, its members or rules readable, duplicable and runnable only on a plan whose
     `builtInContent.canUsePremium` is true (`entitlements-v2.md` §6). Deploys run
@@ -529,8 +543,9 @@ evaluator physically cannot read an ungated value.
   `scripts/cloud/with-stripe.sh` or `stack.sh up dev --stripe`, in sandbox mode, and FMP only
   through `scripts/cloud/fmp-live.sh`, which runs the guarded live hydration and nothing else, or
   `scripts/cloud/fmp-index-universe.sh`, which runs the owner-authorized point-in-time universe
-  commands (`sync`, `resolve`, `ingest`, `benchmarks` with `RUN_INDEX_UNIVERSE_INGESTION=1`) under
-  their own guard and budget, and `project`, `report` and `protect` without a key. Do not export
+  commands (`sync`, `resolve`, `ingest`, `benchmarks`, `dividends` with
+  `RUN_INDEX_UNIVERSE_INGESTION=1`, per `--index`) under their own guard and budget, and `project`,
+  `report` and `protect` without a key. `pnpm data:historical-universes` never needs one. Do not export
   `FMP_API_KEY`, `STRIPE_*` or the per-run opt-ins for a whole session.
 
 ## Live FMP hydration

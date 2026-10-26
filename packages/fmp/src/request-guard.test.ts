@@ -147,6 +147,7 @@ describe("FMP endpoint classification", () => {
       "company-screener",
       "historical-price-eod/full",
       "holidays-by-exchange",
+      "dividends",
       "splits",
       "insider-trading/search",
       "senate-profile",
@@ -154,9 +155,9 @@ describe("FMP endpoint classification", () => {
       "delisted-companies",
       "historical-market-capitalization",
     ]);
-    // Fourteen `this.request` calls in the client: the ten above and four with a computed path. A
-    // fifteenth is an endpoint somebody added without deciding what it is about.
-    expect(source.match(/this\.request</g)).toHaveLength(14);
+    // Fifteen `this.request` calls in the client: the eleven above and four with a computed path.
+    // A sixteenth is an endpoint somebody added without deciding what it is about.
+    expect(source.match(/this\.request</g)).toHaveLength(15);
     expect([...FMP_ENDPOINT_CLASSES.keys()].sort()).toEqual(
       [...literal, ...computed].sort(),
     );
@@ -172,10 +173,14 @@ describe("FMP endpoint classification", () => {
       "company-screener",
       "holidays-by-exchange",
     ]);
-    expect(bySubject("SECURITY")).toHaveLength(10);
+    expect(bySubject("SECURITY")).toHaveLength(11);
     expect(bySubject("DIRECTORY")).toEqual([
       "delisted-companies",
+      "dowjones-constituent",
+      "historical-dowjones-constituent",
+      "historical-nasdaq-constituent",
       "historical-sp500-constituent",
+      "nasdaq-constituent",
       "senate-profile",
       "sp500-constituent",
       "symbol-change",

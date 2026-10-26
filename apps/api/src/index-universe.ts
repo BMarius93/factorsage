@@ -8,7 +8,9 @@ import {
 } from "@intrinsic/config";
 import {
   isMarketIndexKey,
+  isProtectedTierIndex,
   pointInTimeIndexUniverse,
+  PROTECTED_TIER_INDEX_KEYS,
   type LocalDate,
   type MarketIndexKey,
 } from "@intrinsic/domain";
@@ -25,6 +27,7 @@ import {
 import { reconcileBenchmarkCatalog } from "./benchmarks/benchmark-catalog.service";
 import { repositoryRoot } from "./qa-matrix/matrix-paths";
 import { catalogAdmitter } from "./index-universe/index-universe-admission.js";
+import { runDividendIngestion } from "./index-universe/index-universe-dividends.js";
 import {
   runIndexUniverseIngestion,
   universeSecurities,
@@ -49,6 +52,7 @@ import { createIndexUniverseRuntime } from "./index-universe/index-universe-runt
  * pnpm data:index-universe -- protect           # make it resident in Redis's protected tier (no provider)
  * pnpm data:index-universe -- tiers --out f     # audit both stock-cache tiers, read-only (no provider)
  * pnpm data:index-universe -- benchmarks        # load the execution calendar its backtests run on
+ * pnpm data:index-universe -- dividends         # load its securities' dividend histories (750 requests)
  * ```
  *
  * Every step is idempotent and resumable: run them again and each does only what is missing. In a
@@ -64,6 +68,7 @@ const COMMANDS = [
   "protect",
   "tiers",
   "benchmarks",
+  "dividends",
 ] as const;
 type Command = (typeof COMMANDS)[number];
 
@@ -98,6 +103,8 @@ const DEFAULT_BUDGETS: Record<Command, number> = {
   protect: 1,
   tiers: 1,
   benchmarks: 200,
+  // One request per security; the owner's cap for the S&P 500 and Dow members (2026-10-24).
+  dividends: 750,
 };
 
 export function parseIndexUniverseArguments(
@@ -257,7 +264,8 @@ async function main(): Promise<number> {
     args.command === "sync" ||
     args.command === "resolve" ||
     args.command === "ingest" ||
-    args.command === "benchmarks";
+    args.command === "benchmarks" ||
+    args.command === "dividends";
 
   // The guard's scope comes from PostgreSQL before the client exists: nothing can widen it later.
   const scopeRuntime = await createIndexUniverseRuntime({
@@ -297,7 +305,7 @@ async function main(): Promise<number> {
         }
       }
       scopeSymbols = [...symbols];
-    } else if (args.command === "ingest") {
+    } else if (args.command === "ingest" || args.command === "dividends") {
       scopeSymbols = (
         await universeSecurities(scopeRuntime.prisma, args.indexKey)
       ).map((entry) => entry.providerSymbol);
@@ -321,6 +329,7 @@ async function main(): Promise<number> {
     logger,
     runId,
     scopeSymbols,
+    indexKey: args.indexKey,
     budget: args.budget ?? DEFAULT_BUDGETS[args.command],
     provider: usesProvider,
     ...(args.altDataMaxPages === null
@@ -354,6 +363,7 @@ async function main(): Promise<number> {
         print({
           syncId: result.syncId,
           constituents: result.constituents,
+          changeLogCorrections: result.changeLogCorrections,
           replaced: result.replaced,
           anomalies: countBy(result.anomalies.map((anomaly) => anomaly.kind)),
           quality: {
@@ -397,6 +407,13 @@ async function main(): Promise<number> {
         break;
       }
       case "project": {
+        if (args.indexKey !== "SP500") {
+          // Only the S&P 500's List predates validation; every other index universe reaches its List
+          // through `data:historical-universes publish`, from its validated reliable period.
+          throw new Error(
+            `Refusing to project ${args.indexKey}: publish it with \`pnpm data:historical-universes -- publish ${universe.listSystemKey}\` once it validates`,
+          );
+        }
         const constituents = await runtime.membershipStore.loadConstituents(
           args.indexKey,
         );
@@ -452,7 +469,28 @@ async function main(): Promise<number> {
         print({ ...summary, guard: runtime.guard.ledger() });
         break;
       }
+      case "dividends": {
+        const summary = await runDividendIngestion({
+          prisma: runtime.prisma,
+          indexKeys: [args.indexKey],
+          provider: runtime.provider,
+          refresh: args.refresh,
+          symbols: args.symbols,
+          limit: args.limit,
+          concurrency: args.concurrency,
+          logger,
+          shouldStop: () => stopRequested || runtime.guard.closed,
+        });
+        print({ ...summary, guard: runtime.guard.ledger() });
+        break;
+      }
       case "protect": {
+        if (!isProtectedTierIndex(args.indexKey)) {
+          // `historical-universes-v1.md` §7: only the S&P 500's securities are protected.
+          throw new Error(
+            `Refusing to protect ${args.indexKey}: the protected tier holds ${PROTECTED_TIER_INDEX_KEYS.join(", ")} only`,
+          );
+        }
         const summary = await runProtectedResidency({
           prisma: runtime.prisma,
           redis: runtime.redis,

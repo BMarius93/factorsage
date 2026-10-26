@@ -22,6 +22,7 @@
     "data:alt-data:ingest": "tsx src/ingest-alternative-data.ts",
     "data:congress-members:sync": "tsx src/sync-congress-members.ts",
     "data:index-universe": "tsx src/index-universe.ts",
+    "data:historical-universes": "tsx src/historical-universes.ts",
     "strategies:convert-group-scopes": "tsx src/convert-group-scopes.ts",
     "fmp:live": "tsx src/fmp-live.ts",
     "seed:qa-builtins": "tsx src/seed-qa-builtins.ts",

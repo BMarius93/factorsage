@@ -34,7 +34,10 @@ run) and, for the S&P 500 point-in-time universe only, through `scripts/cloud/fm
 For the S&P 500 point-in-time universe — its reconstruction, the built-in List, the Pro allowance
 and the Redis protected tier that keeps it resident — read
 `../docs/decisions/sp500-historical-pit-v1.md`, then `../docs/decisions/protected-stock-tier-v1.md`
-and `../docs/decisions/redis-payload-codec-v1.md` for the Redis side.
+and `../docs/decisions/redis-payload-codec-v1.md` for the Redis side. For the other historical
+universes — the Nasdaq-100 and Dow memberships, the universes derived from an index (market cap,
+styles, Dogs of the Dow), their generator, validation, publication and the internal Top N research
+candidates — read `../docs/decisions/historical-universes-v1.md`.
 
 For commercial plans, capacity limits, guest behaviour or downgrade semantics, read
 `../docs/decisions/entitlements-v2.md` (and the sections of `entitlements-v1.md` it keeps) — the

@@ -37,6 +37,7 @@ import { deleteStockList, duplicateStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
 import { DeleteListDialog } from "./DeleteListDialog";
+import { HistoricalUniversesSection } from "./HistoricalUniversesSection";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import styles from "./ListsPage.module.css";
@@ -183,7 +184,10 @@ export function ListsPage() {
     }
   });
 
-  const { own, builtIn } = partitionByOwnership(lists);
+  const { own, builtIn: allBuiltIn } = partitionByOwnership(lists);
+  // The historical universes are shown by category from the catalog; the rest of the built-ins
+  // stay one collection.
+  const builtIn = allBuiltIn.filter((list) => !list.universe);
 
   // Compliance is derived on every read and is false only after a downgrade or an
   // over-limit import. Reserving a column of em dashes for the usual case would be noise,
@@ -293,15 +297,20 @@ export function ListsPage() {
                 : []),
               // Any list the viewer can read can be copied into one they own, a built-in
               // included; a Guest is asked for an account first. A locked premium list is not
-              // read in full on this plan, so it cannot be copied either.
-              {
-                label: "Duplicate",
-                disabled: !gate.resolved || list.locked === true,
-                onSelect: () =>
-                  gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
-                    setDialog({ kind: "duplicate", list }),
-                  ),
-              },
+              // read in full on this plan, so it cannot be copied either, and a maintained
+              // historical universe is never copied: the API refuses it on every plan.
+              ...(list.universe
+                ? []
+                : [
+                    {
+                      label: "Duplicate",
+                      disabled: !gate.resolved || list.locked === true,
+                      onSelect: () =>
+                        gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
+                          setDialog({ kind: "duplicate", list }),
+                        ),
+                    },
+                  ]),
               // Built-in lists are never deleted, not even by an administrator.
               ...(list.canEdit && list.ownership !== "SYSTEM"
                 ? [
@@ -408,6 +417,10 @@ export function ListsPage() {
               />
             }
           />
+        ) : null}
+
+        {status === "ready" ? (
+          <HistoricalUniversesSection lists={allBuiltIn} />
         ) : null}
 
         {status === "ready" && builtIn.length > 0 ? (

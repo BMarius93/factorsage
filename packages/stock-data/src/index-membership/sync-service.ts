@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
-import type {
-  DailyPrice,
-  DateRange,
-  IndexConstituentResolution,
-  LocalDate,
-  MarketIndexKey,
+import {
+  applyChangeLogCorrections,
+  type IndexChangeLogCorrection,
+} from "./change-log-corrections.js";
+import {
+  pointInTimeIndexUniverse,
+  type DailyPrice,
+  type DateRange,
+  type IndexConstituentResolution,
+  type LocalDate,
+  type MarketIndexKey,
 } from "@intrinsic/domain";
 import type {
   FmpIndexMembershipPort,
@@ -90,6 +95,7 @@ export type IndexUniverseAdmitter = (
 export type IndexMembershipEvent =
   | { event: "index.sync.source"; indexKey: MarketIndexKey; changes: number; renames: number; current: number; dropped: Record<string, number> }
   | { event: "index.sync.reconstructed"; indexKey: MarketIndexKey; constituents: number; anomalies: number }
+  | { event: "index.sync.correction-unmatched"; indexKey: MarketIndexKey; unmatched: readonly { id: string; reason: string }[] }
   | { event: "index.resolve.progress"; indexKey: MarketIndexKey; done: number; total: number }
   | { event: "index.resolve.completed"; indexKey: MarketIndexKey; byResolution: Record<string, number> }
   | { event: "index.resolve.probe-failed"; indexKey: MarketIndexKey; constituentKey: string; error: string };
@@ -98,6 +104,11 @@ export type IndexMembershipSyncResult = {
   readonly syncId: string;
   readonly sourceDigest: string;
   readonly constituents: number;
+  /** The reviewed change-log corrections (`change-log-corrections.ts`) applied, and those refused. */
+  readonly changeLogCorrections: {
+    readonly applied: readonly string[];
+    readonly unmatched: readonly { id: string; reason: string }[];
+  };
   readonly anomalies: readonly ReconstructionAnomaly[];
   readonly quality: MembershipQualityReport;
   readonly replaced: Awaited<ReturnType<IndexMembershipStore["replaceConstituents"]>>;
@@ -175,6 +186,8 @@ export class IndexMembershipSyncService {
       readonly probeConcurrency?: number;
       /** The reviewed identity corrections (`corrections.ts`); replaced only by tests. */
       readonly identityCorrections?: readonly IndexIdentityCorrection[];
+      /** The reviewed change-log corrections (`change-log-corrections.ts`); replaced only by tests. */
+      readonly changeLogCorrections?: readonly IndexChangeLogCorrection[];
     } = {},
   ) {}
 
@@ -222,7 +235,19 @@ export class IndexMembershipSyncService {
         seenAt,
       );
 
-      const storedChanges = await this.store.loadIndexChanges(indexKey);
+      const corrections = applyChangeLogCorrections(
+        indexKey,
+        await this.store.loadIndexChanges(indexKey),
+        this.options.changeLogCorrections,
+      );
+      const storedChanges = corrections.changes;
+      if (corrections.unmatched.length > 0) {
+        this.options.onEvent?.({
+          event: "index.sync.correction-unmatched",
+          indexKey,
+          unmatched: corrections.unmatched,
+        });
+      }
       const storedRenames = await this.store.loadSymbolChanges();
       const currentRows = [...current.rows].sort((left, right) =>
         left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0,
@@ -249,16 +274,20 @@ export class IndexMembershipSyncService {
         syncId,
         result.constituents,
       );
-      const quality = membershipQualityReport(result.constituents, {
-        floor: input.floor,
-        asOf: input.asOf,
-      });
+      const quality = membershipQualityReport(
+        result.constituents,
+        { floor: input.floor, asOf: input.asOf },
+        undefined,
+        pointInTimeIndexUniverse(indexKey).expectedLines,
+      );
       const sourceDigest = digest([
         INDEX_RECONSTRUCTION_ALGORITHM_VERSION,
         input.asOf,
         currentRows,
         storedChanges.map((row) => row.contentHash),
         storedRenames.map((row) => row.contentHash),
+        // Present only when a correction applies, so an index without one keeps its digest.
+        ...(corrections.applied.length > 0 ? [corrections.applied] : []),
       ]);
       await this.store.completeSync(syncId, {
         sourceDigest,
@@ -276,6 +305,10 @@ export class IndexMembershipSyncService {
           },
           reconstruction: {
             algorithmVersion: result.algorithmVersion,
+            changeLogCorrections: {
+              applied: corrections.applied,
+              unmatched: corrections.unmatched,
+            },
             logStart: result.logStart,
             constituents: result.constituents.length,
             byOrigin: countBy(result.constituents, (entry) => entry.origin),
@@ -303,6 +336,10 @@ export class IndexMembershipSyncService {
         syncId,
         sourceDigest,
         constituents: result.constituents.length,
+        changeLogCorrections: {
+          applied: corrections.applied,
+          unmatched: corrections.unmatched,
+        },
         anomalies: result.anomalies,
         quality,
         replaced,

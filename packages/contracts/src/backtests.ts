@@ -1,5 +1,9 @@
 import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
-import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
+import type {
+  BuyWindowMode,
+  BuyWindowRangeResponse,
+  UniverseClassificationResponse,
+} from "./stock-lists.js";
 import { alternativeDataScope } from "./alternative-data.js";
 import {
   collectAlternativeDataMetrics,
@@ -231,6 +235,11 @@ export type BacktestRunConfigurationResponse = {
   fullPositionPercent: number;
   benchmark: BacktestBenchmarkSnapshotResponse;
   methodology: BacktestMethodologyResponse;
+  /**
+   * Present only when the run's List was a retrospectively classified universe, named by the
+   * snapshot's frozen `universeKey`: the classification its results rest on, and its disclosure.
+   */
+  stockListClassification?: UniverseClassificationResponse;
 };
 
 /**
@@ -1274,10 +1283,16 @@ export function backtestSnapshotVersionFor(
     : BACKTEST_SNAPSHOT_VERSION;
 }
 
-/** The point-in-time index universe a run's List carried, frozen at submission. */
+/** The maintained historical universe a run's List carried, frozen at submission. */
 export type BacktestSnapshotIndexUniverse = {
   kind: "POINT_IN_TIME_INDEX";
+  /** The root index: an index universe's own, or the one a derived universe is drawn from. */
   indexKey: string;
+  /**
+   * The derived universe's catalog key (`sp500-top100-market-cap`, `dogs-of-the-dow`, ...). Absent
+   * for an index's own membership, so those snapshots are exactly what they always were.
+   */
+  universeKey?: string;
   peakSimultaneousMembers: number;
 };
 

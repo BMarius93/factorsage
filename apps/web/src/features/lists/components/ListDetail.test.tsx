@@ -168,6 +168,9 @@ describe("ListDetail", () => {
           universe: {
             kind: "POINT_IN_TIME_INDEX",
             indexKey: "SP500",
+            universeKey: "sp500-historical-pit",
+            category: "MARKET_INDICES",
+            derived: false,
             distinctSecurities: 2,
             peakSimultaneousMembers: 2,
             currentMembers: 1,
@@ -190,6 +193,140 @@ describe("ListDetail", () => {
     expect(notice).toContain("buys each stock only while it was a member");
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByTestId("add-stocks-button")).toBeNull();
+  });
+
+  it("explains a derived universe by how it is selected, not by the index's floor", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail(
+        [
+          item("item-1", "AAPL", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "2016-01-30", endDate: null }],
+          }),
+        ],
+        {
+          ownership: "SYSTEM",
+          systemKey: "sp500-top100-market-cap",
+          canEdit: false,
+          universe: {
+            kind: "POINT_IN_TIME_INDEX",
+            indexKey: "SP500",
+            universeKey: "sp500-top100-market-cap",
+            category: "MARKET_CAPITALIZATION",
+            derived: true,
+            distinctSecurities: 1,
+            peakSimultaneousMembers: 1,
+            currentMembers: 1,
+            membershipFloor: "1996-01-02",
+            syncedAt: null,
+          },
+        },
+      ),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    const notice = (screen.getByTestId("universe-notice").textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(notice).toContain("Selected at each reconstitution");
+    expect(notice).toContain("using only data available on that date");
+    expect(notice).not.toContain("1996");
+  });
+
+  it("discloses a retrospectively classified universe's classification and its coverage by year", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail(
+        [
+          item("item-1", "KO", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "1996-01-02", endDate: null }],
+          }),
+        ],
+        {
+          ownership: "SYSTEM",
+          systemKey: "sp500-defensive",
+          canEdit: false,
+          universe: {
+            kind: "POINT_IN_TIME_INDEX",
+            indexKey: "SP500",
+            universeKey: "sp500-defensive",
+            category: "ECONOMIC_SUPERSECTORS",
+            derived: true,
+            distinctSecurities: 162,
+            peakSimultaneousMembers: 101,
+            currentMembers: 80,
+            membershipFloor: "1996-01-02",
+            syncedAt: null,
+            classification: {
+              timing: "RETROSPECTIVE",
+              scheme: "CURRENT_SECTOR",
+              methodLabel: "Current sector applied retrospectively",
+              underlyingIndex: "S&P 500",
+              sectors: ["Consumer Staples", "Health Care", "Utilities"],
+              disclosure:
+                "Historical S&P 500 membership with retrospective sector classification. Sector assignments reflect currently available classifications and may differ from historical classifications.",
+            },
+            coverage: {
+              reliableFrom: "2016-01-29",
+              priceCoverageFrom: "2003-12-31",
+              indexSecurities: 735,
+              unclassifiedSecurities: 2,
+              warnings: [],
+              byYear: [
+                {
+                  year: "1996",
+                  indexLines: 500,
+                  indexMembers: 262,
+                  classified: 261,
+                  unclassified: 1,
+                  groupMembers: 61,
+                  groupPriced: 55,
+                  constituentCoverage: 0.524,
+                  classifiedShare: 0.996,
+                  priceCoverage: 0.9016,
+                  minPriceCoverage: 0.88,
+                },
+              ],
+            },
+          },
+        },
+      ),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    expect(screen.getByTestId("universe-retrospective-badge").textContent).toBe(
+      "Retrospective classification",
+    );
+    const notice = (screen.getByTestId("universe-notice").textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    // Its membership is the index's own; only its classification is today's.
+    expect(notice).toContain("The S&P 500's point-in-time membership since");
+    expect(notice).toContain("whose current sector is in this group");
+    expect(notice).not.toContain("Selected at each reconstitution");
+    expect(
+      screen.getByTestId("universe-classification-disclosure").textContent,
+    ).toBe(
+      "Historical S&P 500 membership with retrospective sector classification. Sector assignments reflect currently available classifications and may differ from historical classifications.",
+    );
+    expect(
+      screen.getByTestId("universe-classification-sectors").textContent,
+    ).toBe("Consumer Staples, Health Care, Utilities");
+    expect(
+      screen.getByTestId("universe-classification-method").textContent,
+    ).toBe("Current sector applied retrospectively");
+    const coverage =
+      screen.getByTestId("universe-classification-coverage").textContent ?? "";
+    expect(coverage).toContain("lean toward survivors");
+    expect(coverage).toContain(
+      "2 of 735 S&P 500 stocks have no available sector",
+    );
+    const byYear = screen.getByTestId("universe-coverage-by-year");
+    expect(byYear.textContent).toContain("1996");
+    expect(byYear.textContent).toContain("262 of 500 (52%)");
+    expect(byYear.textContent).toContain("55 (90%)");
   });
 
   it("lets an administrator edit a built-in list but never offers to delete it", async () => {

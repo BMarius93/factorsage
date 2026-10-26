@@ -8,6 +8,7 @@ import {
   getStockDataConfig,
 } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import type { MarketIndexKey } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import type { StructuredLogger as Logger } from "@intrinsic/observability";
 import {
@@ -71,6 +72,8 @@ export async function createIndexUniverseRuntime(input: {
   readonly runId: string;
   /** The symbols the guard admits for per-security requests. */
   readonly scopeSymbols: readonly string[];
+  /** The index whose membership directories the guard admits; the S&P 500 when omitted. */
+  readonly indexKey?: MarketIndexKey;
   readonly budget: number;
   /** When false, nothing may reach the provider: the guard admits no request. */
   readonly provider: boolean;
@@ -93,6 +96,7 @@ export async function createIndexUniverseRuntime(input: {
   const guard = new IndexUniverseRequestGuard(
     input.provider ? input.scopeSymbols : [],
     budget,
+    input.indexKey ?? "SP500",
   );
   const provider = new FmpClient(
     () => {

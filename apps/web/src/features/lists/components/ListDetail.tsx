@@ -60,6 +60,11 @@ import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
+import {
+  RetrospectiveClassificationBadge,
+  UniverseClassificationNotice,
+  UniverseCoverageByYear,
+} from "./UniverseClassification";
 import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
 import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./ListDetail.module.css";
@@ -530,6 +535,9 @@ export function ListDetail({ listId }: ListDetailProps) {
                   {detail.universe.peakSimultaneousMembers} at once
                 </StatusBadge>
               ) : null}
+              {detail.universe?.classification ? (
+                <RetrospectiveClassificationBadge />
+              ) : null}
               {detail.compliance.compliant ? null : (
                 <StatusBadge tone="warning" testId="list-over-limit-badge">
                   Over plan limit
@@ -572,14 +580,46 @@ export function ListDetail({ listId }: ListDetailProps) {
         {detail.universe ? (
           // Why this built-in cannot be edited, and what its membership means for a backtest.
           <p className={styles.universeNotice} data-testid="universe-notice">
-            Membership is reconstructed from the index's historical changes
-            since {formatMembershipDate(detail.universe.membershipFloor)} and
-            maintained automatically: {detail.universe.currentMembers} current
-            members and{" "}
+            {detail.universe.classification ? (
+              // Its membership is the index's own windows; only its classification is today's.
+              <>
+                The {detail.universe.classification.underlyingIndex}&apos;s
+                point-in-time membership since{" "}
+                {formatMembershipDate(detail.universe.membershipFloor)}, for the
+                companies whose current sector is in this group, maintained
+                automatically:{" "}
+              </>
+            ) : detail.universe.derived ? (
+              // A derived universe starts at its own validated reliable period, not the index's floor.
+              <>
+                Selected at each reconstitution from the index&apos;s
+                point-in-time membership, using only data available on that
+                date, and maintained automatically:{" "}
+              </>
+            ) : (
+              <>
+                Membership is reconstructed from the index&apos;s historical
+                changes since{" "}
+                {formatMembershipDate(detail.universe.membershipFloor)} and
+                maintained automatically:{" "}
+              </>
+            )}
+            {detail.universe.currentMembers} current members and{" "}
             {detail.universe.distinctSecurities -
               detail.universe.currentMembers}{" "}
             former ones. A backtest buys each stock only while it was a member.
           </p>
+        ) : null}
+        {detail.universe?.classification ? (
+          <>
+            <UniverseClassificationNotice
+              classification={detail.universe.classification}
+              coverage={detail.universe.coverage ?? null}
+            />
+            {detail.universe.coverage ? (
+              <UniverseCoverageByYear coverage={detail.universe.coverage} />
+            ) : null}
+          </>
         ) : null}
 
         {detail.compliance.compliant ? null : (

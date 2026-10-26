@@ -1127,6 +1127,129 @@ describe("backtests", () => {
       }
     });
 
+    it("freezes a derived universe with its key and its root index, premium on every plan below Pro", async () => {
+      const derivedKey = "dogs-of-the-dow";
+      await prisma.stockList.deleteMany({ where: { systemKey: derivedKey } });
+      const derived = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: derivedKey,
+          name: "Dogs of the Dow",
+          items: {
+            create: [
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("A")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [{ startDate: new Date("2020-01-01T00:00:00.000Z"), endDate: null }],
+                },
+              },
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("C")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("2020-01-01T00:00:00.000Z"),
+                      endDate: new Date("2020-12-31T00:00:00.000Z"),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      try {
+        const run = await submit({ stockListId: derived.id });
+        const stored = await prisma.backtestRun.findUniqueOrThrow({
+          where: { id: run.id },
+          select: { snapshot: true },
+        });
+        const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+        expect(snapshot.stockList.universe).toEqual({
+          kind: "POINT_IN_TIME_INDEX",
+          indexKey: "DOW30",
+          universeKey: derivedKey,
+          peakSimultaneousMembers: 2,
+        });
+        // A ranking's inputs are all point-in-time: nothing to disclose.
+        expect(run.configuration.stockListClassification).toBeUndefined();
+        // The List's own premium flag is not what decides: a maintained universe is premium.
+        const refused = await starter
+          .post("/backtests")
+          .send(submission({ strategyId: starterStrategyId, stockListId: derived.id }))
+          .expect(403);
+        expect(refused.body).toMatchObject({ code: "ENTITLEMENT_PREMIUM_CONTENT" });
+      } finally {
+        await prisma.backtestRun.deleteMany({ where: { stockListId: derived.id } });
+        await prisma.stockList.delete({ where: { id: derived.id } });
+      }
+    });
+
+    it("freezes a retrospectively classified universe like any derived one, and keeps the snapshot as frozen", async () => {
+      const classifiedKey = "sp500-cyclical";
+      await prisma.stockList.deleteMany({ where: { systemKey: classifiedKey } });
+      const classified = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: classifiedKey,
+          name: "S&P 500 Cyclical",
+          items: {
+            create: ["A", "B"].map((letter) => ({
+              securityId: securityIdsBySymbol.get(symbolOf(letter)) ?? "",
+              buyWindowMode: "CUSTOM" as const,
+              buyWindows: {
+                create: [{ startDate: new Date("2020-01-01T00:00:00.000Z"), endDate: null }],
+              },
+            })),
+          },
+        },
+      });
+      try {
+        const run = await submit({ stockListId: classified.id });
+        const read = async () =>
+          (
+            await prisma.backtestRun.findUniqueOrThrow({
+              where: { id: run.id },
+              select: { snapshot: true },
+            })
+          ).snapshot as unknown as BacktestRunSnapshot;
+        const frozen = await read();
+        expect(frozen.stockList.universe).toEqual({
+          kind: "POINT_IN_TIME_INDEX",
+          indexKey: "SP500",
+          universeKey: classifiedKey,
+          peakSimultaneousMembers: 2,
+        });
+        // The run's configuration carries the classification its results rest on.
+        expect(run.configuration.stockListClassification).toMatchObject({
+          timing: "RETROSPECTIVE",
+          methodLabel: "Current sector applied retrospectively",
+          sectors: ["Financials", "Consumer Discretionary", "Materials", "Real Estate"],
+        });
+        expect(run.configuration.stockListClassification?.disclosure).toContain(
+          "retrospective sector classification",
+        );
+        // A later publication rewrites the List; the run keeps the membership it was submitted with.
+        await prisma.stockListItem.deleteMany({
+          where: {
+            stockListId: classified.id,
+            securityId: securityIdsBySymbol.get(symbolOf("B")) ?? "",
+          },
+        });
+        expect(await read()).toEqual(frozen);
+        const refused = await starter
+          .post("/backtests")
+          .send(submission({ strategyId: starterStrategyId, stockListId: classified.id }))
+          .expect(403);
+        expect(refused.body).toMatchObject({ code: "ENTITLEMENT_PREMIUM_CONTENT" });
+      } finally {
+        await prisma.backtestRun.deleteMany({ where: { stockListId: classified.id } });
+        await prisma.stockList.delete({ where: { id: classified.id } });
+      }
+    });
+
     it("holds a customer's copy of the members to the ordinary List rules", async () => {
       const copy = await prisma.stockList.create({
         data: {

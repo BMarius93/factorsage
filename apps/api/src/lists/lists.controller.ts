@@ -1,4 +1,5 @@
 import type {
+  HistoricalUniverseCatalogResponse,
   StockListDetailResponse,
   StockListItemResponse,
   StockListSummaryResponse,
@@ -35,6 +36,7 @@ import {
   parseUpdateStockListRequest,
 } from "./stock-list-requests";
 import {
+  MaintainedUniverseCopyError,
   StockListInUseByMonitorError,
   StockListItemNotFoundError,
   StockListNotFoundError,
@@ -63,6 +65,19 @@ export class ListsController {
     @Viewer() viewer: AuthUser | null,
   ): Promise<StockListSummaryResponse[]> {
     return this.lists.listForUser(viewer);
+  }
+
+  /**
+   * The historical universe catalog: every catalog universe, grouped, with its availability and
+   * whether the viewer's plan unlocks it. Declared before `:listId`, which would otherwise match it.
+   */
+  @RateLimit("standard-read")
+  @Get("universes")
+  @UseGuards(OptionalCookieAuthGuard)
+  async universes(
+    @Viewer() viewer: AuthUser | null,
+  ): Promise<HistoricalUniverseCatalogResponse> {
+    return this.lists.universeCatalog(viewer);
   }
 
   @RateLimit("mutation")
@@ -189,6 +204,10 @@ export class ListsController {
       // The list exists and is the caller's; something still references it. That is a conflict with
       // the current state, not a malformed request.
       if (error instanceof StockListInUseByMonitorError) {
+        throw new ConflictException(error.message);
+      }
+      // A rule of the resource, not of the caller's plan: no plan unlocks it.
+      if (error instanceof MaintainedUniverseCopyError) {
         throw new ConflictException(error.message);
       }
       if (

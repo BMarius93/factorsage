@@ -63,10 +63,13 @@ export function PremiumBadge({
   locked = false,
   size = "default",
   testId = "premium-badge",
+  label = "Premium",
 }: {
   readonly locked?: boolean;
   readonly size?: "default" | "small";
   readonly testId?: string;
+  /** The badge's word: `Premium`, or the plan that unlocks it (`Pro`) where that reads better. */
+  readonly label?: string;
 }) {
   const plans = premiumPlansLabel();
   return (
@@ -79,7 +82,7 @@ export function PremiumBadge({
       {...(locked && plans !== "" ? { title: `Included in ${plans}` } : {})}
     >
       {locked ? <LockIcon /> : null}
-      Premium
+      {label}
       {locked ? <VisuallyHidden>, locked</VisuallyHidden> : null}
     </StatusBadge>
   );

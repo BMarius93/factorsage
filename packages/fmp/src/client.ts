@@ -67,6 +67,7 @@ import {
   type MappedFmpMarketCapitalization,
   type MappedFmpSymbolChange,
 } from "./index-membership-mapping.js";
+import { mapFmpDividends, type FmpDividendDto } from "./dividend-mapping.js";
 import type { FmpRequestDescriptor, FmpRequestGuard } from "./request-guard.js";
 
 export type FmpClientConfig = {
@@ -319,6 +320,14 @@ export class FmpClient
       { exchange: exchangeCode.trim().toUpperCase(), from, to },
     );
     return mapFmpExchangeHolidays(payload);
+  }
+
+  /** The provider's dividend history for one symbol: one request, every dividend since listing. */
+  async getDividends(symbol: string) {
+    const payload = await this.request<FmpDividendDto[]>("dividends", {
+      symbol: symbol.trim().toUpperCase(),
+    });
+    return mapFmpDividends(payload);
   }
 
   /** The provider's split list for one symbol: one request, the whole history and announced events. */

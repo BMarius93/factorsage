@@ -189,6 +189,18 @@ function RunProvenance({
           },
         ]}
       />
+      {configuration.stockListClassification ? (
+        // The run's results rest on a retrospective classification: said beside them, not hidden.
+        <Notice
+          tone="warning"
+          title="Retrospective sector classification"
+          testId="backtest-universe-classification"
+        >
+          {configuration.stockListClassification.disclosure}{" "}
+          {configuration.stockListClassification.methodLabel}:{" "}
+          {configuration.stockListClassification.sectors.join(", ")}.
+        </Notice>
+      ) : null}
       <FactGrid
         facts={[
           { label: "Stocks", value: formatCount(configuration.securityCount) },
