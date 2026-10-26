@@ -64,6 +64,7 @@ describe("canonical definitions on shared backtests", () => {
   const BUILT_IN_STRATEGY_KEY = `share-def-trend-${short.toLowerCase()}`;
   const PREMIUM_STRATEGY_KEY = `share-def-premium-${short.toLowerCase()}`;
   const BUILT_IN_LIST_KEY = `share-def-leaders-${short.toLowerCase()}`;
+  const TWIN_STRATEGY_KEY = `share-def-twin-${short.toLowerCase()}`;
   const UNIVERSE_KEY = "sp500-historical-pit";
   const CUSTOM_STRATEGY_NAME = `My secret edge ${suffix}`;
   const CUSTOM_LIST_NAME = `My watchlist ${suffix}`;
@@ -420,7 +421,13 @@ describe("canonical definitions on shared backtests", () => {
       await prisma.user.deleteMany({ where: { email: ownerEmail } });
       await prisma.strategy.deleteMany({
         where: {
-          systemKey: { in: [BUILT_IN_STRATEGY_KEY, PREMIUM_STRATEGY_KEY] },
+          systemKey: {
+            in: [
+              BUILT_IN_STRATEGY_KEY,
+              PREMIUM_STRATEGY_KEY,
+              TWIN_STRATEGY_KEY,
+            ],
+          },
         },
       });
       await prisma.stockList.deleteMany({
@@ -1053,6 +1060,44 @@ describe("canonical definitions on shared backtests", () => {
       for (const symbol of symbols) {
         expect(text).not.toContain(symbol);
       }
+    });
+  });
+
+  // Last, because it adds a built-in that makes the official logic's evidence ambiguous.
+  it("calls an unrecorded strategy unknown when its history matches more than one built-in", async () => {
+    await prisma.strategy.create({
+      data: {
+        ownership: "SYSTEM",
+        systemKey: TWIN_STRATEGY_KEY,
+        name: "Official Twin",
+        versions: {
+          create: {
+            versionNumber: 1,
+            definition: BUILT_IN_DEFINITION as unknown as object,
+            definitionHash: definitionHashOf(BUILT_IN_DEFINITION),
+          },
+        },
+      },
+    });
+    const legacyCopy = await prisma.strategy.create({
+      data: {
+        userId: ownerId,
+        name: "Legacy copy of one of two identical built-ins",
+        versions: {
+          create: {
+            versionNumber: 1,
+            definition: BUILT_IN_DEFINITION as unknown as object,
+            definitionHash: definitionHashOf(BUILT_IN_DEFINITION),
+          },
+        },
+      },
+      select: { id: true },
+    });
+    const list = await createList(`Twin list ${suffix}`);
+    const runId = await completedRun(legacyCopy.id, list.id);
+    await share(runId);
+    expect((await recorded(runId)).definitions?.strategy.provenance).toEqual({
+      origin: "unknown",
     });
   });
 });
