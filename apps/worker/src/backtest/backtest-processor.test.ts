@@ -764,12 +764,16 @@ describe("the protected tier", () => {
   });
 
   it("designates a universe derived from the S&P 500 too: its securities are S&P 500 securities", async () => {
-    const { processor, events } = recordingProcessor();
-    await processor.process(
-      claimOf(universeSnapshot("SP500", "sp500-top100-market-cap")),
-      lease,
-    );
-    expect(events).toEqual(["protect:security-1", "prepare:security-1"]);
+    // A ranking and a retrospectively classified supersector alike: both hold only S&P 500
+    // securities, already in the protected tier, so nothing new becomes resident.
+    for (const universeKey of ["sp500-top100-market-cap", "sp500-defensive"]) {
+      const { processor, events } = recordingProcessor();
+      await processor.process(
+        claimOf(universeSnapshot("SP500", universeKey)),
+        lease,
+      );
+      expect(events).toEqual(["protect:security-1", "prepare:security-1"]);
+    }
   });
 
   it("designates nothing for a Nasdaq-100 or Dow universe: only the S&P 500 is protected", async () => {
