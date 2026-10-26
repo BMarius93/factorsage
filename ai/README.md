@@ -171,6 +171,13 @@ contract, the Open Graph metadata and preview image, and what must never cross t
 `../docs/decisions/backtest-sharing-v1.md`. Its § 3 is the privacy contract: a field reaches a
 public reader only by being added to the allowlist on purpose.
 
+For the portable JSON form of a Strategy or a List — the canonical definition codec in
+`@intrinsic/strategy` (`src/definitions/`), its validation and deterministic descriptions, the
+digest-pinned point-in-time reference, built-in / custom / derived provenance and the `origin`
+columns behind it, and how a share records and publishes definitions — read
+`../docs/decisions/canonical-definitions-v1.md`. It is the foundation any future import, export or
+template work builds on.
+
 For Monitor, Dashboard or built-in content work, read
 `../docs/decisions/builtin-dashboard-signals-v1.md` (the accepted signal lifecycle, SYSTEM ownership,
 the Dashboard and the built-in catalog), then `product/product-overview.md` (the domain map) and

@@ -371,15 +371,35 @@ LOCKED` + renewable-lease protocol as `BacktestJob`. That idiom has four instanc
 26. A shared backtest publishes **results only** (`docs/decisions/backtest-sharing-v1.md`). Its owner
     may give one completed run one unguessable link (256-bit token, never a database id), revoked by
     deleting it; anyone holding it reads `SharedBacktestReportResponse`, an explicit allowlist that
-    is never a filtered private DTO. It never carries the strategy, its rules or identifiers, the
-    list or its securities, trades, positions or the owner — only how many rules and securities the
-    frozen run used — and every figure is the stored result through the owner page's own code. The
+    is never a filtered private DTO. It never carries a strategy's or list's identifiers or a
+    customer's name for them, the canonical definition documents, the list's securities, trades,
+    positions or the owner, and every figure is the stored result through the owner page's own code.
+    What it says about the strategy and the list (`docs/decisions/canonical-definitions-v1.md`) is
+    recorded once, when the link is created, from the run's frozen snapshot: their provenance —
+    built-in, custom or derived on evidence (ownership, the copy record, the frozen logic), never by
+    name, and `unknown` when nothing recorded can tell — and their generated descriptions, published
+    for a non-premium built-in, for the owner's own content only when the owner opts in, and never
+    for a premium built-in strategy's rules. A link created before definitions were recorded reads
+    exactly as it did. The
     public routes ask nobody who they are, so no plan, session or entitlement changes the answer, and
     they never start a run, read a stock history or ask the provider. A token is a working link: it
     stays out of logs and error messages. The public demonstration shelf (`GET /demo-backtests`,
     `entitlements-v2.md` §4) is the one place shared reports are listed: operator-featured
     `DemoBacktest` rows, keyed by the share so a revoked link leaves the shelf with it, carrying
     nothing the link does not already publish. There is still no directory or search of shares.
+27. A Strategy or a Stock List has one **portable, versioned JSON form**, `factorsage.definition`
+    (`docs/decisions/canonical-definitions-v1.md`), written and read by the codec in
+    `@intrinsic/strategy` (`src/definitions/`). It is a representation, never a source of truth:
+    nothing executes from it and no row is replaced by it. Its Strategy logic is the Strategy
+    document's own grammar, validated by `validateStrategyDefinition`, minus row ids and with members
+    of Congress by bioguide id; its List names securities by symbol and exchange; a point-in-time
+    universe is a digest-pinned reference that reconstructs only from a source holding that exact
+    membership and never from today's constituents. The codec is lossless or it refuses — an unknown
+    field, an unresolvable actor or security, a non-canonical window is an issue, never dropped — and
+    descriptions are generated from the document alone, deterministically, from the platform's own
+    canonical sentences. Customer content records its `origin` (`AUTHORED`, or `COPIED` with the
+    built-in at the root of the copy chain) when it is created; do not infer built-in status from a
+    name.
 
 ## Dependency rules
 

@@ -157,6 +157,18 @@ enum BuyWindowMode {
   CUSTOM
 }
 
+/// How a customer's List or Strategy came to exist, recorded when it is created
+/// (`docs/decisions/canonical-definitions-v1.md` §5).
+///
+/// `AUTHORED` — written from scratch. `COPIED` — duplicated from content the customer could read;
+/// the `origin*` columns beside it name the built-in at the root of the copy chain, when there is
+/// one. A row created before origins were recorded holds `NULL`, which means *not recorded* and is
+/// never read as either value. SYSTEM rows hold `NULL`: their ownership already says what they are.
+enum ContentOrigin {
+  AUTHORED
+  COPIED
+}
+
 /// Who owns a List, Strategy or Monitor.
 ///
 /// `USER` rows belong to exactly one customer (`userId` set, `systemKey` null). `SYSTEM` rows are the
@@ -406,22 +418,32 @@ model RecentSecurityView {
 /// read, backtested and copied only on a plan that includes premium content. Only a `SYSTEM` row can
 /// be premium — a CHECK constraint says so — because a customer's copy is ordinary content.
 model StockList {
-  id              String           @id @default(uuid())
-  ownership       ContentOwnership @default(USER)
-  userId          String?
-  systemKey       String?          @unique
-  name            String
-  description     String?
-  displayOrder    Int?
-  premium         Boolean          @default(false)
-  updatedByUserId String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  updatedBy       User?            @relation("StockListUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  items           StockListItem[]
-  backtestRuns    BacktestRun[]
-  monitors        Monitor[]
+  id                     String           @id @default(uuid())
+  ownership              ContentOwnership @default(USER)
+  userId                 String?
+  systemKey              String?          @unique
+  name                   String
+  description            String?
+  displayOrder           Int?
+  premium                Boolean          @default(false)
+  updatedByUserId        String?
+  /// How this customer List came to exist; `NULL` for SYSTEM rows and for rows created before
+  /// origins were recorded. See `ContentOrigin`.
+  origin                 ContentOrigin?
+  /// The built-in List at the root of the copy chain, by its immutable `systemKey`. Set only on a
+  /// `COPIED` row, together with `originMembershipDigest`.
+  originSystemKey        String?
+  /// The built-in's membership when it was copied: SHA-256 of its canonical members by security id
+  /// and buy window (`listMembershipFingerprint`). A run of the copy whose frozen membership has the
+  /// same digest executed the official membership unchanged; any other digest means it was changed.
+  originMembershipDigest String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  user                   User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy              User?            @relation("StockListUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  items                  StockListItem[]
+  backtestRuns           BacktestRun[]
+  monitors               Monitor[]
 
   @@index([userId])
   @@index([ownership])
@@ -451,24 +473,35 @@ model StockListItem {
 /// unique — identity is this row's id, and a built-in's seed identity is `systemKey`. Editing a
 /// built-in appends a version exactly like editing a user Strategy.
 model Strategy {
-  id              String            @id @default(uuid())
-  ownership       ContentOwnership  @default(USER)
-  userId          String?
-  systemKey       String?           @unique
-  name            String
-  description     String?
-  displayOrder    Int?
+  id                   String            @id @default(uuid())
+  ownership            ContentOwnership  @default(USER)
+  userId               String?
+  systemKey            String?           @unique
+  name                 String
+  description          String?
+  displayOrder         Int?
   /// A premium built-in Strategy: its rules are read, backtested and copied only on a plan that
   /// includes premium content (`docs/decisions/entitlements-v2.md` §6). `SYSTEM` rows only.
-  premium         Boolean           @default(false)
-  updatedByUserId String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  updatedBy       User?             @relation("StrategyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  versions        StrategyVersion[]
-  backtestRuns    BacktestRun[]
-  monitors        Monitor[]
+  premium              Boolean           @default(false)
+  updatedByUserId      String?
+  /// How this customer Strategy came to exist; `NULL` for SYSTEM rows and for rows created before
+  /// origins were recorded. See `ContentOrigin`.
+  origin               ContentOrigin?
+  /// The built-in Strategy at the root of the copy chain, by its immutable `systemKey`. Set only on
+  /// a `COPIED` row, together with the version and hash below.
+  originSystemKey      String?
+  /// The built-in's `StrategyVersion.versionNumber` that was copied.
+  originVersionNumber  Int?
+  /// That version's `definitionHash`. A run of the copy whose frozen `definitionHash` equals it
+  /// executed the official logic unchanged; any other hash means the copy was edited.
+  originDefinitionHash String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  user                 User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy            User?             @relation("StrategyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  versions             StrategyVersion[]
+  backtestRuns         BacktestRun[]
+  monitors             Monitor[]
 
   @@index([userId])
   @@index([userId, updatedAt])
@@ -1372,11 +1405,24 @@ model BacktestRunSummary {
 /// allowlisted public report its owner chose to publish, and the owner has to be able to copy the
 /// same link again later. 32 random bytes, base64url.
 model BacktestShare {
-  runId     String        @id
-  token     String        @unique
-  createdAt DateTime      @default(now())
-  run       BacktestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
-  demo      DemoBacktest?
+  runId               String        @id
+  token               String        @unique
+  createdAt           DateTime      @default(now())
+  /// The canonical documents of the Strategy and the List the run executed, serialized from its
+  /// frozen snapshot when the link was created (`{ strategy, list }`,
+  /// `docs/decisions/canonical-definitions-v1.md`). Internal: never served as such. `NULL` for a
+  /// link created before definitions were recorded, which keeps that link exactly as it was.
+  definitions         Json?
+  /// The deterministic descriptions generated from `definitions` at the same moment
+  /// (`{ strategy: { short, detailed }, list: { short, detailed } }`). Present exactly when
+  /// `definitions` is — a CHECK constraint says so — and never regenerated on a read.
+  descriptions        Json?
+  /// The owner chose to publish the descriptions of a custom, derived or unrecorded Strategy or
+  /// List on the public report. Off unless the owner turns it on; a non-premium built-in's
+  /// description is public regardless, and a premium built-in Strategy's rules never are.
+  publishDescriptions Boolean       @default(false)
+  run                 BacktestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  demo                DemoBacktest?
 }
 
 /// A shared backtest the operator features as a public demonstration (`docs/decisions/entitlements-v2.md`

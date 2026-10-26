@@ -16,8 +16,13 @@ export type BacktestShareState =
 
 export type BacktestShareControls = {
   readonly state: BacktestShareState;
-  /** Creates the run's public link, or returns the one it already has. Rejects on failure. */
-  readonly enable: () => Promise<void>;
+  /**
+   * Creates the run's public link, or returns the one it already has; with `publishDescriptions`,
+   * also sets whether the owner's own descriptions are published. Rejects on failure.
+   */
+  readonly enable: (options?: {
+    publishDescriptions?: boolean;
+  }) => Promise<void>;
   /** Stops sharing. Rejects on failure, leaving the link as it was. */
   readonly revoke: () => Promise<void>;
   readonly retry: () => void;
@@ -27,6 +32,7 @@ const NOT_SHARED: BacktestShareResponse = {
   shared: false,
   url: null,
   sharedAt: null,
+  publishDescriptions: false,
 };
 
 /**
@@ -60,14 +66,26 @@ export function useBacktestShare(
     return () => controller.abort();
   }, [runId, enabled, attempt]);
 
-  const enable = useCallback(async () => {
-    const share = await enableBacktestShare(runId);
-    setState({ status: "ready", share });
-  }, [runId]);
+  const enable = useCallback(
+    async (options: { publishDescriptions?: boolean } = {}) => {
+      const share = await enableBacktestShare(runId, options);
+      setState({ status: "ready", share });
+    },
+    [runId],
+  );
 
   const revoke = useCallback(async () => {
     await revokeBacktestShare(runId);
-    setState({ status: "ready", share: NOT_SHARED });
+    // What the run would publish is the same once it is unshared; only the link is gone.
+    setState((current) => ({
+      status: "ready",
+      share: {
+        ...NOT_SHARED,
+        ...(current.status === "ready" && current.share.definitions
+          ? { definitions: current.share.definitions }
+          : {}),
+      },
+    }));
   }, [runId]);
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);

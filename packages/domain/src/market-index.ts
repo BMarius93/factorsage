@@ -32,6 +32,8 @@ export function isMarketIndexKey(value: unknown): value is MarketIndexKey {
 /** One point-in-time index universe and the built-in List that carries it. */
 export type PointInTimeIndexUniverse = {
   readonly indexKey: MarketIndexKey;
+  /** The index's own product name — `S&P 500` — as a description of the universe names it. */
+  readonly indexName: string;
   /** The built-in List's immutable `systemKey`. */
   readonly listSystemKey: string;
   readonly listName: string;
@@ -47,6 +49,7 @@ export type PointInTimeIndexUniverse = {
 
 export const SP500_HISTORICAL_PIT_UNIVERSE: PointInTimeIndexUniverse = {
   indexKey: "SP500",
+  indexName: "S&P 500",
   listSystemKey: "sp500-historical-pit",
   listName: "S&P 500 — Historical PIT",
   listDescription:

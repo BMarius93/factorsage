@@ -434,13 +434,30 @@ describe("public backtest sharing", () => {
   });
 
   describe("the owner", () => {
-    it("starts unshared", async () => {
+    it("starts unshared, showing what sharing would publish without recording anything", async () => {
       const response = await owner.get(`/backtests/${runId}/share`).expect(200);
+      // Seeded without an origin, so neither can be called custom or built-in: `unknown`, and
+      // therefore published only if the owner chooses to.
       expect(response.body).toEqual({
         shared: false,
         url: null,
         sharedAt: null,
+        publishDescriptions: false,
+        definitions: {
+          strategy: {
+            origin: "unknown",
+            publication: "opt_in",
+            short:
+              "Buys when Price is above EMA 200D and Price is below SMA 50D and Price crosses above SMA 200D. Sells in 1 level and closes the position when any of 2 exit rules matches.",
+          },
+          list: {
+            origin: "unknown",
+            publication: "opt_in",
+            short: "80 securities, each eligible to buy on any date.",
+          },
+        },
       });
+      expect(await prisma.backtestShare.count({ where: { runId } })).toBe(0);
     });
 
     it("cannot share a run that has not completed", async () => {
@@ -513,8 +530,30 @@ describe("public backtest sharing", () => {
         await anonymous.get(`/shared-backtests/${token}`).expect(200)
       ).body as SharedBacktestReportResponse;
       expect(Object.keys(body).sort()).toEqual(
-        ["completedAt", "configuration", "result", "runNumber", "url"].sort(),
+        [
+          "completedAt",
+          "configuration",
+          "definitions",
+          "result",
+          "runNumber",
+          "url",
+        ].sort(),
       );
+      // Where the strategy and list came from, and nothing else until the owner publishes more.
+      expect(Object.keys(body.definitions ?? {}).sort()).toEqual([
+        "list",
+        "strategy",
+      ]);
+      for (const part of [body.definitions?.strategy, body.definitions?.list]) {
+        expect(Object.keys(part ?? {}).sort()).toEqual([
+          "description",
+          "origin",
+        ]);
+        expect(part?.description).toEqual({
+          status: "withheld",
+          reason: "owner",
+        });
+      }
       expect(Object.keys(body.configuration).sort()).toEqual(
         [
           "benchmark",
@@ -615,7 +654,20 @@ describe("public backtest sharing", () => {
         "levelId",
         "seriesId",
         "providerSymbol",
-        "definition",
+        // The canonical documents a share records stay behind the API.
+        '"definition"',
+        '"metadata"',
+        '"provenance"',
+        '"members"',
+        '"evidence"',
+        "factorsage.definition",
+        "schemaVersion",
+        // Unpublished descriptions: the rules in words.
+        "EMA 200D",
+        "SMA 50D",
+        "is above",
+        "crosses above",
+        "80 securities",
         "snapshot",
         "trades",
         "holdings",
@@ -785,7 +837,12 @@ describe("public backtest sharing", () => {
       await starter.get(`/shared-backtests/${old}`).expect(404);
       expect(
         (await owner.get(`/backtests/${runId}/share`).expect(200)).body,
-      ).toEqual({ shared: false, url: null, sharedAt: null });
+      ).toMatchObject({
+        shared: false,
+        url: null,
+        sharedAt: null,
+        publishDescriptions: false,
+      });
       // Idempotent.
       await owner.delete(`/backtests/${runId}/share`).expect(204);
 
@@ -836,8 +893,9 @@ describe("public backtest sharing", () => {
       const [demo] = ours(await shelf(anonymous));
       expect(demo).toBeDefined();
       const token = demo?.path.split("/share/")[1] as string;
-      const preview = (await anonymous.get(`/shared-backtests/${token}/preview`).expect(200))
-        .body as SharedBacktestPreviewResponse;
+      const preview = (
+        await anonymous.get(`/shared-backtests/${token}/preview`).expect(200)
+      ).body as SharedBacktestPreviewResponse;
       expect(demo?.headline).toEqual(preview.headline);
       expect(demo?.configuration).toEqual(preview.configuration);
       expect(demo?.url).toBe(`https://factorsage.example.test/share/${token}`);
@@ -846,7 +904,13 @@ describe("public backtest sharing", () => {
       expect(ours(await shelf(free))).toEqual(ours(await shelf(anonymous)));
 
       const bytes = JSON.stringify(await shelf(anonymous));
-      for (const secret of [STRATEGY_NAME, LIST_NAME, securityName(0), ownerEmail, runId]) {
+      for (const secret of [
+        STRATEGY_NAME,
+        LIST_NAME,
+        securityName(0),
+        ownerEmail,
+        runId,
+      ]) {
         expect(bytes).not.toContain(secret);
       }
     });
@@ -885,8 +949,10 @@ describe("public backtest sharing", () => {
       expect(await sharing.unfeatureDemo(runId)).toBe(true);
       expect(ours(await shelf(anonymous))).toEqual([]);
       expect(
-        ((await owner.get(`/backtests/${runId}/share`).expect(200)).body as BacktestShareResponse)
-          .url,
+        (
+          (await owner.get(`/backtests/${runId}/share`).expect(200))
+            .body as BacktestShareResponse
+        ).url,
       ).toBe(shared.url);
     });
   });

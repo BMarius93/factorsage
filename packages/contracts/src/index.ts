@@ -194,6 +194,7 @@ export * from "./strategies.js";
 export * from "./strategy-etf-sources.js";
 export * from "./stock-sector-etfs.js";
 export * from "./dates.js";
+export { sha256Hex } from "./digest.js";
 export * from "./backtests.js";
 export * from "./backtest-sharing.js";
 export * from "./monitors.js";

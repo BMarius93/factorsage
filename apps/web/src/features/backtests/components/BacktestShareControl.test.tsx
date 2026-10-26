@@ -17,7 +17,29 @@ const fetchShareMock = vi.mocked(fetchBacktestShare);
 const enableMock = vi.mocked(enableBacktestShare);
 const revokeMock = vi.mocked(revokeBacktestShare);
 
-const NOT_SHARED = { shared: false, url: null, sharedAt: null } as const;
+const DEFINITIONS = {
+  strategy: {
+    origin: "custom",
+    publication: "opt_in",
+    short:
+      "Buys when RSI 14D is below 27. Closes the position when Price is below EMA 50D.",
+  },
+  list: {
+    origin: "built_in",
+    builtInName: "S&P 500 — Historical PIT",
+    publication: "always",
+    short:
+      "Uses historical S&P 500 membership to determine eligible securities at each point in time.",
+  },
+} as const;
+
+const NOT_SHARED = {
+  shared: false,
+  url: null,
+  sharedAt: null,
+  publishDescriptions: false,
+  definitions: DEFINITIONS,
+} as const;
 const URL_ONE =
   "https://factorsage.example/share/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const URL_TWO =
@@ -26,6 +48,8 @@ const SHARED_ONE = {
   shared: true,
   url: URL_ONE,
   sharedAt: "2026-10-22T10:00:00.000Z",
+  publishDescriptions: false,
+  definitions: DEFINITIONS,
 } as const;
 
 async function settle() {
@@ -61,7 +85,7 @@ describe("BacktestShareControl", () => {
     ).toBe("false");
     expect(dialog.textContent).toContain("read-only report");
     expect(screen.getByTestId("backtest-share-privacy").textContent).toContain(
-      "rules, the stock list and its securities, and the trade log stay private",
+      "The securities in your list, the individual trades and the trade log always stay private.",
     );
     expect(screen.queryByTestId("backtest-share-url")).toBeNull();
     expect(enableMock).not.toHaveBeenCalled();
@@ -77,7 +101,9 @@ describe("BacktestShareControl", () => {
     fireEvent.click(screen.getByTestId("backtest-share-enable"));
     await settle();
 
-    expect(enableMock).toHaveBeenCalledWith("run-1");
+    expect(enableMock).toHaveBeenCalledWith("run-1", {
+      publishDescriptions: false,
+    });
     const field = screen.getByTestId("backtest-share-url") as HTMLInputElement;
     expect(field.value).toBe(URL_ONE);
     expect(field.readOnly).toBe(true);
@@ -153,5 +179,90 @@ describe("BacktestShareControl", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("did not work");
     expect(screen.getByTestId("backtest-share").textContent).toBe("Shared");
+  });
+
+  it("says where the strategy and list come from, and what each publishes", async () => {
+    fetchShareMock.mockResolvedValue(NOT_SHARED);
+    await openDialog();
+    const strategy = screen.getByTestId("backtest-share-definition-strategy");
+    expect(strategy.getAttribute("data-origin")).toBe("custom");
+    expect(strategy.textContent).toContain("Custom");
+    expect(strategy.textContent).toContain("Buys when RSI 14D is below 27.");
+    expect(strategy.textContent).toContain(
+      "stays private unless you publish it",
+    );
+    const list = screen.getByTestId("backtest-share-definition-list");
+    expect(list.textContent).toContain("Built-in · Official FactorSage List");
+    expect(list.textContent).toContain(
+      "is public: it is official FactorSage content",
+    );
+  });
+
+  it("publishes the owner's descriptions only when the owner ticks the option, with a warning", async () => {
+    fetchShareMock.mockResolvedValue(NOT_SHARED);
+    enableMock.mockResolvedValue({ ...SHARED_ONE, publishDescriptions: true });
+    await openDialog();
+
+    const option = screen.getByTestId(
+      "backtest-share-publish",
+    ) as HTMLInputElement;
+    expect(option.checked).toBe(false);
+    expect(
+      screen.getByTestId("backtest-share-publish-warning").textContent,
+    ).toContain(
+      "reveals your strategy's conditions — the metrics, operators and thresholds it uses",
+    );
+    fireEvent.click(option);
+    expect(enableMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("backtest-share-enable"));
+    await settle();
+    expect(enableMock).toHaveBeenCalledWith("run-1", {
+      publishDescriptions: true,
+    });
+    expect(
+      (screen.getByTestId("backtest-share-publish") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+  });
+
+  it("changes an existing link's choice at once", async () => {
+    fetchShareMock.mockResolvedValue(SHARED_ONE);
+    enableMock.mockResolvedValue({ ...SHARED_ONE, publishDescriptions: true });
+    await openDialog();
+    fireEvent.click(screen.getByTestId("backtest-share-publish"));
+    await settle();
+    expect(enableMock).toHaveBeenCalledWith("run-1", {
+      publishDescriptions: true,
+    });
+    expect(
+      screen.getByTestId("backtest-share-definition-strategy").textContent,
+    ).toContain("is published on the report");
+  });
+
+  it("offers no choice when every description is official", async () => {
+    fetchShareMock.mockResolvedValue({
+      ...NOT_SHARED,
+      definitions: {
+        strategy: {
+          ...DEFINITIONS.list,
+          short: "Buys when Price is above SMA 200D.",
+        },
+        list: DEFINITIONS.list,
+      },
+    });
+    await openDialog();
+    expect(screen.queryByTestId("backtest-share-publish")).toBeNull();
+  });
+
+  it("lets the owner of a link from before definitions were recorded opt in", async () => {
+    fetchShareMock.mockResolvedValue({
+      shared: true,
+      url: URL_ONE,
+      sharedAt: SHARED_ONE.sharedAt,
+      publishDescriptions: false,
+    });
+    await openDialog();
+    expect(screen.queryByTestId("backtest-share-definitions")).toBeNull();
+    expect(screen.getByTestId("backtest-share-publish")).toBeTruthy();
   });
 });

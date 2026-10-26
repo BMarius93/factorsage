@@ -5,8 +5,15 @@
 **Accepted — 2026-10-22 (owner).** An owner may publish the **results** of one completed backtest
 behind an unguessable public link. Recipients — signed in or not, on any plan — read a read-only
 report with the interactive chart, the eight KPI tiles, the annual returns and the general
-simulation parameters. The strategy, the stock list, its securities, the trades and the owner stay
-private. Sharing presents results; it never publishes, clones or transfers a strategy.
+simulation parameters. The stock list's securities, the trades and the owner stay private.
+Sharing presents results; it never publishes, clones or transfers a strategy.
+
+**Amended — 2026-10-26 (owner): definitions on the report** (`canonical-definitions-v1.md`). A new
+link also records the canonical definitions of the run's Strategy and List, their provenance and
+their generated descriptions. The report always says where each comes from — built-in, custom,
+derived, or not recorded — and carries a description when the publication rule allows: an official
+non-premium built-in's always, the owner's own only when the owner opts in, a premium built-in
+Strategy's rules never. Links created before this amendment keep their report exactly as it was.
 
 Out of scope for V1: public strategy or list publishing, cloning or copying a shared run's
 configuration, social profiles, comments or likes, view analytics, any public directory or search
@@ -71,13 +78,20 @@ own, never a filtered `BacktestRunDetailResponse`. It carries:
   window, the benchmark's (null where the benchmark cannot be measured), which is what the Strategy
   vs benchmark heatmap draws.
 - `result.curve` — the owner page's own chart projection, point for point.
+- `definitions` (optional; links created since 2026-10-26) — for the Strategy and the List, each
+  `{ origin, builtInName?, description }`: the origin (`built_in | custom | derived | unknown`), the
+  official name of the built-in it is or was derived from, and either the published `short` and
+  `detailed` description or `{ status: "withheld", reason: "owner" | "premium" }`
+  (`canonical-definitions-v1.md` §7 has the publication rule).
 
-Never present: strategy name, id, version, definition, rules, metrics, operators or thresholds;
-list name, id or members; any symbol or security name; trades, the trade log, positions, holdings,
-entry or exit dates, signals; the methodology record; the ETF-condition diagnostics and stock-sector
-assignments (they name the ETFs a strategy reads and the stocks it holds); failure detail; the
-owner. The API's integration test pins the exact key set and searches the served bytes for every
-private value; adding a field to the allowlist is a deliberate, test-visible act.
+Never present: the canonical definition documents themselves; a customer's name for their strategy
+or list; strategy or list ids or versions; rules, metrics, operators or thresholds **except** in a
+description the publication rule allows; list members; any symbol or security name; trades, the
+trade log, positions, holdings, entry or exit dates, signals; the methodology record; the
+ETF-condition diagnostics and stock-sector assignments (they name the ETFs a strategy reads and the
+stocks it holds); failure detail; the owner. The API's integration tests pin the exact key sets and
+search the served bytes for every private value, with descriptions withheld and published; adding a
+field to the allowlist is a deliberate, test-visible act.
 
 **Counts come from the frozen run.** `securityCount` is the snapshot's resolved securities, as the
 owner's "Stocks" fact is. `strategyRuleCount` is `strategyRuleCount()` over the snapshot's
@@ -104,9 +118,15 @@ with the owner page's own components: the header titled by the Run ID (`Run #008
 vs benchmark heatmap; `DisclosureNote`; and a `FactGrid` of the simulation settings and counts. Only
 the allowlisted data is serialized into the RSC payload, so nothing private can reach the HTML.
 
-What the owner's page adds has no counterpart: no strategy or list names or links, no "Edit and run
-again", no Share, no run configuration provenance, no trade log, no locked or teased section and no
-upgrade offer. The page says it is a shared, read-only report. Its one action is **Create your own
+When the link recorded definitions, a **Strategy and list** section follows the results: each is
+titled `Strategy — <official name>` for a built-in and `Strategy` otherwise, with its provenance
+line (`Built-in · Official FactorSage Strategy`, `Custom`, `Derived from <built-in>`,
+`Origin not recorded`) and the published description, or a plain sentence saying it is withheld.
+The intro stops calling the rules private once their description is published.
+
+What the owner's page adds has no counterpart: no customer names for the strategy or list, no links
+to them, no "Edit and run again", no Share, no run configuration provenance, no trade log, no locked
+or teased section and no upgrade offer. The page says it is a shared, read-only report. Its one action is **Create your own
 backtest**: a Guest goes to `/register?next=/backtests/new`, a signed-in reader to `/backtests/new`.
 An unknown or revoked link renders a `404` not-found state that names no backtest.
 
@@ -179,8 +199,13 @@ Migration `20261023090000_backtest_share` adds one table:
 BacktestShare(runId PK -> BacktestRun ON DELETE CASCADE, token UNIQUE, createdAt)
 ```
 
-It references the frozen run and copies nothing from it; no existing row or column changes, and the
-run's `updatedAt` is untouched by sharing. Deleting a user or a run deletes its share.
+It references the frozen run; no existing row or column changes, and the run's `updatedAt` is
+untouched by sharing. Deleting a user or a run deletes its share.
+
+Migration `20261026090000_definition_provenance_and_share_definitions` adds `definitions JSONB`,
+`descriptions JSONB` (both or neither, by CHECK) and `publishDescriptions BOOLEAN DEFAULT false`,
+written in the same statement that creates a link (`canonical-definitions-v1.md` §7). The owner's
+`PUT` takes an optional `{ publishDescriptions }`; without one an existing link keeps its setting.
 
 ## 9. Known V1 limitations
 

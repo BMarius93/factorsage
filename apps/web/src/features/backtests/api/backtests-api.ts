@@ -8,6 +8,7 @@ import {
   type BacktestRunStatusFilter,
   type BacktestRunSummaryResponse,
   type BacktestShareResponse,
+  type UpdateBacktestShareRequest,
   type BacktestTradeLogQuery,
   type BacktestTradePageResponse,
   type BenchmarkResponse,
@@ -194,13 +195,17 @@ export function fetchBacktestShare(
   return apiGet<BacktestShareResponse>(`/backtests/${runId}/share`, options);
 }
 
-/** Shares a completed run, or returns the link it already has. Idempotent. */
+/**
+ * Shares a completed run, or returns the link it already has. Idempotent. `request` sets whether the
+ * owner's own descriptions are published; without it an existing link keeps its setting.
+ */
 export async function enableBacktestShare(
   runId: string,
+  request: UpdateBacktestShareRequest = {},
 ): Promise<BacktestShareResponse> {
   return (await apiPut<BacktestShareResponse>(
     `/backtests/${runId}/share`,
-    undefined,
+    request,
   )) as BacktestShareResponse;
 }
 

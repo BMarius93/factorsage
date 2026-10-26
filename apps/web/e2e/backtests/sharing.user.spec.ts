@@ -187,7 +187,7 @@ test.describe("sharing a completed backtest", () => {
       "false",
     );
     await expect(dialog.getByTestId("backtest-share-privacy")).toContainText(
-      "trade log stay private",
+      "trade log always stay private",
     );
     await expect(dialog.getByTestId("backtest-share-url")).toHaveCount(0);
 
@@ -310,6 +310,9 @@ test.describe("sharing a completed backtest", () => {
       "share-sell",
       "SMA_50D",
       "IS_ABOVE",
+      // The rules in words: the owner has not published the description.
+      "SMA 50D",
+      "is above",
     ]) {
       expect(html, `served HTML contains ${secret}`).not.toContain(secret);
       expect(await page.content(), `page contains ${secret}`).not.toContain(

@@ -65,7 +65,11 @@ A signed-in user may **duplicate** any list they can read — their own or a bui
 ordinary `USER` list owned by the caller: the source's description, its members in their order and
 every member's buy-window mode and canonical ranges, all under new ids. Nothing built-in carries
 over (`systemKey`, `displayOrder`, `updatedByUserId`), nothing historical is copied (backtest runs
-and Monitors keep referencing the source), and the source is only read. Only the name comes from
+and Monitors keep referencing the source), and the source is only read. What the copy does record
+is its **origin**: `COPIED`, and — when the chain of copies starts at a built-in — that built-in's
+`systemKey` and a digest of its membership as copied, which is how a shared backtest later tells an
+unchanged copy from a derived one (`docs/decisions/canonical-definitions-v1.md` §5). A list created
+from scratch records `AUTHORED`. Only the name comes from
 the request, validated exactly like a new list's; names are not unique, so no numbering is needed.
 The copy is a new custom list, so `POST /lists`' entitlement checks apply to its size — a built-in
 is exempt from the symbol limit, a customer's copy of one is not. Source read and copy write are one
