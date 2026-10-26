@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { FMP_STOCK_SECTORS } from "@intrinsic/contracts";
 import { Prisma, PrismaClient, SecurityType } from "@intrinsic/database";
-import type { LocalDate } from "@intrinsic/domain";
+import {
+  ECONOMIC_SUPERSECTORS,
+  type EconomicSupersector,
+  type HistoricalUniverseDefinition,
+  type LocalDate,
+} from "@intrinsic/domain";
 import { useTestDatabase } from "@intrinsic/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { replaceDividendEvents } from "../dividends.js";
 import { loadProtectedTierSecurityIds } from "../index-membership/prisma-store.js";
 import { addCalendarDays } from "./engine.js";
@@ -56,12 +62,49 @@ function closeOf(member: number, index: number): number {
   return base * (1 + (member / 3000) * (index / 252));
 }
 
+/**
+ * The supersector methodology over the same synthetic index, as declarative definitions outside the
+ * catalog: the catalog's three draw from the S&P 500, which other suites' fixtures use.
+ */
+const SUPERSECTORS = Object.keys(
+  ECONOMIC_SUPERSECTORS,
+) as EconomicSupersector[];
+const supersectorKey = (supersector: EconomicSupersector) =>
+  `test-${RUN}-${supersector.toLowerCase()}`;
+const SUPERSECTOR_DEFINITIONS: HistoricalUniverseDefinition[] =
+  SUPERSECTORS.map((supersector, index) => ({
+    key: supersectorKey(supersector),
+    name: `Test ${supersector}`,
+    description: "A synthetic supersector universe.",
+    category: "ECONOMIC_SUPERSECTORS",
+    audience: "INTERNAL",
+    displayOrder: index + 1,
+    method: {
+      kind: "CLASSIFICATION",
+      indexKey: "DOW30",
+      scheme: "CURRENT_SECTOR",
+      sectors: ECONOMIC_SUPERSECTORS[supersector],
+    },
+    methodologyVersion: 1,
+    methodology: "Test.",
+    requires: [
+      "INDEX_MEMBERSHIP",
+      "DAILY_PRICES",
+      "CURRENT_SECTOR_CLASSIFICATION",
+    ],
+  }));
+const ALL_KEYS = [
+  ...KEYS,
+  "sp500-sector-energy",
+  ...SUPERSECTOR_DEFINITIONS.map((definition) => definition.key),
+];
+
 async function cleanUp(): Promise<void> {
   await prisma.historicalUniverse.deleteMany({
-    where: { key: { in: [...KEYS, "sp500-sector-energy"] } },
+    where: { key: { in: ALL_KEYS } },
   });
   await prisma.historicalUniverseGeneration.deleteMany({
-    where: { universeKey: { in: [...KEYS, "sp500-sector-energy"] } },
+    where: { universeKey: { in: ALL_KEYS } },
   });
   await prisma.indexConstituent.deleteMany({ where: { indexKey: "DOW30" } });
   await prisma.indexMembershipSync.deleteMany({ where: { indexKey: "DOW30" } });
@@ -403,4 +446,273 @@ describe("historical universe generator", () => {
     const eligible = new Set(await loadProtectedTierSecurityIds(prisma));
     expect(securities.some((id) => eligible.has(id))).toBe(false);
   });
+});
+
+/**
+ * Members 1–27 take FMP's eleven sectors in turn (member 12's spelled loosely), member 28 has none
+ * and member 29 one outside the eleven. So: Cyclical 2, 6, 9, 10, 13, 17, 20, 21, 24; Defensive 4,
+ * 7, 8, 15, 18, 19, 26; Sensitive 1, 3, 5, 11, 12, 14, 16, 22, 23, 25, 27. Member 4 is priced only
+ * from March 2019 and member 25 leaves the index and returns.
+ */
+describe("retrospectively classified universes", () => {
+  const sectorOf = (n: number): string | null =>
+    n === 28
+      ? null
+      : n === 29
+        ? "Conglomerates"
+        : n === 12
+          ? "  technology "
+          : (FMP_STOCK_SECTORS[(n - 1) % 11] as string);
+  const CYCLICAL = [2, 6, 9, 10, 13, 17, 20, 21, 24];
+  const DEFENSIVE = [4, 7, 8, 15, 18, 19, 26];
+  const SENSITIVE = [1, 3, 5, 11, 12, 14, 16, 22, 23, 25, 27];
+  const generate = () =>
+    generateHistoricalUniverses({
+      prisma,
+      keys: [],
+      definitions: SUPERSECTOR_DEFINITIONS,
+    });
+  const periodsOf = async (supersector: EconomicSupersector) => {
+    const universe = await prisma.historicalUniverse.findUniqueOrThrow({
+      where: { key: supersectorKey(supersector) },
+    });
+    return loadGenerationPeriods(prisma, universe.latestGenerationId as string);
+  };
+  const outcomeOf = (
+    outcomes: Awaited<ReturnType<typeof generate>>,
+    supersector: EconomicSupersector,
+  ) => {
+    const outcome = outcomes.find(
+      (entry) => entry.key === supersectorKey(supersector),
+    );
+    if (outcome?.outcome !== "GENERATED" && outcome?.outcome !== "UNCHANGED") {
+      throw new Error(`${supersector} not generated`);
+    }
+    return outcome;
+  };
+
+  beforeAll(async () => {
+    for (let n = 1; n <= 29; n += 1) {
+      await prisma.security.update({
+        where: { id: member(n) },
+        data: { sector: sectorOf(n) },
+      });
+    }
+    for (const [n, syncedAt] of [
+      [1, "2026-10-23T18:00:00.000Z"],
+      [2, "2026-10-24T12:00:00.000Z"],
+    ] as const) {
+      await prisma.stockDatasetState.create({
+        data: {
+          securityId: member(n),
+          dataset: "SECURITY_PROFILE",
+          lastSuccessfulSyncAt: new Date(syncedAt),
+        },
+      });
+    }
+  });
+
+  it("holds each classified member in exactly one group, over its own index windows, without a provider call", async () => {
+    const fetchSpy = vi.fn(() => {
+      throw new Error("the generator must not call a provider");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    let outcomes: Awaited<ReturnType<typeof generate>>;
+    try {
+      outcomes = await generate();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(outcomes.map((outcome) => outcome.outcome)).toEqual([
+      "GENERATED",
+      "GENERATED",
+      "GENERATED",
+    ]);
+    const groups = {
+      CYCLICAL: await periodsOf("CYCLICAL"),
+      DEFENSIVE: await periodsOf("DEFENSIVE"),
+      SENSITIVE: await periodsOf("SENSITIVE"),
+    };
+    expect([...groups.CYCLICAL.keys()].sort()).toEqual(
+      CYCLICAL.map(member).sort(),
+    );
+    expect([...groups.DEFENSIVE.keys()].sort()).toEqual(
+      DEFENSIVE.map(member).sort(),
+    );
+    expect([...groups.SENSITIVE.keys()].sort()).toEqual(
+      SENSITIVE.map(member).sort(),
+    );
+    // Mutually exclusive, and the unclassified are in none.
+    const all = Object.values(groups).flatMap((periods) => [...periods.keys()]);
+    expect(new Set(all).size).toBe(all.length);
+    expect(all).not.toContain(member(28));
+    expect(all).not.toContain(member(29));
+    // The index's own windows: from the floor, exit and re-entry untouched.
+    expect(groups.SENSITIVE.get(member(25))).toEqual([
+      { startDate: "1996-01-02", endDate: "2022-06-15" },
+      { startDate: "2024-03-01", endDate: null },
+    ]);
+    expect(groups.CYCLICAL.get(member(2))).toEqual([
+      { startDate: "1996-01-02", endDate: null },
+    ]);
+
+    // Two of 29 securities unclassified is under the 95 % gate: reported, and not publishable.
+    const cyclical = outcomeOf(outcomes, "CYCLICAL");
+    expect(cyclical.validation.verdict).toBe("DRAFT");
+    expect(cyclical.validation.reasons).toEqual([
+      {
+        code: "CLASSIFICATION_INCOMPLETE",
+        classifiedShare: 0.931,
+        minimum: 0.95,
+      },
+    ]);
+    expect(cyclical.summary.classification).toMatchObject({
+      source: "FMP_COMPANY_PROFILE_SECTOR",
+      timing: "RETROSPECTIVE",
+      mappingVersion: 1,
+      indexSecurities: 29,
+      classifiedSecurities: 27,
+      unclassifiedSecurities: 2,
+      bySector: {
+        FINANCIALS: 3,
+        CONSUMER_DISCRETIONARY: 2,
+        MATERIALS: 2,
+        REAL_ESTATE: 2,
+      },
+      asOf: {
+        earliest: "2026-10-23T18:00:00.000Z",
+        latest: "2026-10-24T12:00:00.000Z",
+        withoutProfileSync: 25,
+      },
+    });
+    expect(
+      cyclical.summary.classification?.unclassified.map((entry) => [
+        entry.securityId,
+        entry.reason,
+        entry.stored,
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        [member(28), "MISSING", null],
+        [member(29), "UNSUPPORTED", "Conglomerates"],
+      ]),
+    );
+  }, 300_000);
+
+  it("reports each checkpoint's classification and the group's own price coverage", async () => {
+    const universe = await prisma.historicalUniverse.findUniqueOrThrow({
+      where: { key: supersectorKey("DEFENSIVE") },
+      include: { latestGeneration: true },
+    });
+    const diagnostics = universe.latestGeneration?.diagnostics as unknown as {
+      date: string;
+      parentLines: number;
+      parentMembers: number;
+      classification: Record<string, number>;
+    }[];
+    expect(
+      diagnostics.find((entry) => entry.date === "2020-12-31"),
+    ).toMatchObject({
+      parentLines: 30,
+      parentMembers: 29,
+      classification: {
+        classified: 27,
+        unclassified: 2,
+        groupMembers: 7,
+        groupPriced: 7,
+      },
+    });
+    // Member 4 is unpriced until March 2019: six of seven, under 90 %.
+    expect(
+      diagnostics.find((entry) => entry.date === "2018-12-31"),
+    ).toMatchObject({
+      classification: { groupMembers: 7, groupPriced: 6 },
+    });
+    const validation = universe.latestGeneration?.validation as unknown as {
+      warnings: { code: string; coveredFrom?: string | null }[];
+    };
+    expect(validation.warnings.map((warning) => warning.code)).toEqual([
+      "RETROSPECTIVE_CLASSIFICATION",
+      "UNCLASSIFIED_MEMBERS",
+      "INCOMPLETE_PRICE_COVERAGE",
+      "SURVIVORSHIP_BIAS",
+    ]);
+    expect(
+      validation.warnings.find(
+        (warning) => warning.code === "INCOMPLETE_PRICE_COVERAGE",
+      )?.coveredFrom,
+    ).toBe("2019-03-29");
+    const summary = universe.latestGeneration?.summary as unknown as {
+      classification: { byYear: Record<string, unknown>[] };
+    };
+    expect(
+      summary.classification.byYear.find((entry) => entry.year === "2020"),
+    ).toMatchObject({ priceCoverage: 1, minPriceCoverage: 1 });
+    expect(
+      summary.classification.byYear.find((entry) => entry.year === "2018"),
+    ).toMatchObject({
+      indexLines: 30,
+      indexMembers: 29,
+      constituentCoverage: 0.9667,
+      classifiedShare: 0.931,
+      groupMembers: 7,
+      // The year's last checkpoint still lacks member 4.
+      priceCoverage: 0.8571,
+      minPriceCoverage: 0.8571,
+    });
+  });
+
+  it("writes nothing when rerun, and regenerates when the provider's classification changes", async () => {
+    const rerun = await generate();
+    expect(rerun.map((outcome) => outcome.outcome)).toEqual([
+      "UNCHANGED",
+      "UNCHANGED",
+      "UNCHANGED",
+    ]);
+
+    // Member 29 gains a sector, and member 2 moves from Financial Services to Healthcare.
+    await prisma.security.update({
+      where: { id: member(29) },
+      data: { sector: "Industrials" },
+    });
+    await prisma.security.update({
+      where: { id: member(2) },
+      data: { sector: "Healthcare" },
+    });
+    const changed = await generate();
+    expect(changed.map((outcome) => outcome.outcome)).toEqual([
+      "GENERATED",
+      "GENERATED",
+      "GENERATED",
+    ]);
+    const cyclical = await periodsOf("CYCLICAL");
+    const defensive = await periodsOf("DEFENSIVE");
+    const sensitive = await periodsOf("SENSITIVE");
+    expect(cyclical.has(member(2))).toBe(false);
+    // Retrospective by construction: today's sector over the whole history.
+    expect(defensive.get(member(2))).toEqual([
+      { startDate: "1996-01-02", endDate: null },
+    ]);
+    expect(sensitive.has(member(29))).toBe(true);
+
+    // 28 of 29 classified passes the gate: published from the floor, its coverage disclosed.
+    const outcome = outcomeOf(changed, "SENSITIVE");
+    expect(outcome.validation).toMatchObject({
+      verdict: "VALIDATED",
+      reasons: [],
+      publishFrom: "1996-01-02",
+    });
+    expect(outcome.summary.peakSimultaneousMembers).toBe(12);
+    expect(outcome.summary.classification?.unclassified).toEqual([
+      expect.objectContaining({ securityId: member(28), reason: "MISSING" }),
+    ]);
+    expect(
+      (
+        await prisma.historicalUniverse.findUniqueOrThrow({
+          where: { key: supersectorKey("SENSITIVE") },
+        })
+      ).status,
+    ).toBe("VALIDATED");
+  }, 300_000);
 });

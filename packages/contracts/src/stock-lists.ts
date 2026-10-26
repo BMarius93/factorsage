@@ -70,7 +70,7 @@ export type StockListUniverseResponse = {
   universeKey: string;
   /** Its catalog group: `MARKET_INDICES`, `MARKET_CAPITALIZATION`, `INVESTMENT_STYLES`, ... */
   category: string;
-  /** False for an index's own membership; true for a ranking drawn from one. */
+  /** False for an index's own membership; true for a universe drawn from one. */
   derived: boolean;
   /** Distinct securities the List holds: every tradeable constituent since the floor. */
   distinctSecurities: number;
@@ -85,6 +85,83 @@ export type StockListUniverseResponse = {
   membershipFloor: string;
   /** When the canonical membership was last synchronized with the provider; null if never. */
   syncedAt: string | null;
+  /**
+   * Present only on a universe that groups its index's members by sector: how they are classified.
+   * Its membership is point-in-time; its classification is not, and every surface says so.
+   */
+  classification?: UniverseClassificationResponse;
+  /**
+   * Present only alongside `classification`, once the universe is published: the data coverage its
+   * List discloses rather than gates on. `byYear` is on the List's detail only.
+   */
+  coverage?: UniverseCoverageResponse;
+};
+
+/**
+ * A retrospectively classified universe's classification (`docs/decisions/historical-universes-v1.md`
+ * §2.1): each company's current sector, applied to every date.
+ */
+export type UniverseClassificationResponse = {
+  /** Never point-in-time: the current classification applied to the past. */
+  timing: "RETROSPECTIVE";
+  scheme: "CURRENT_SECTOR";
+  /** "Current sector applied retrospectively". */
+  methodLabel: string;
+  /** The index whose point-in-time membership is classified: "S&P 500". */
+  underlyingIndex: string;
+  /** The sectors the universe holds, by name. */
+  sectors: string[];
+  /** The disclosure shown wherever the universe is. */
+  disclosure: string;
+  /** The classification the published List was generated from: on the List's detail only. */
+  audit?: UniverseClassificationAuditResponse;
+};
+
+export type UniverseClassificationAuditResponse = {
+  /** `FMP_COMPANY_PROFILE_SECTOR`: each company's current sector from the provider's profile. */
+  source: string;
+  mappingVersion: number;
+  /** The newest profile synchronization the classifications were read from; null if unrecorded. */
+  asOf: string | null;
+  indexSecurities: number;
+  classifiedSecurities: number;
+  /** Every index security without a sector: in no group, never guessed. */
+  unclassified: {
+    symbol: string;
+    name: string;
+    reason: "MISSING" | "UNSUPPORTED";
+  }[];
+};
+
+export type UniverseCoverageResponse = {
+  /**
+   * The first date from which at least 90 % of the index's constituents have a stored price on every
+   * checkpoint. Before it, members that left without price history are missing: survivorship bias.
+   */
+  reliableFrom: string | null;
+  /** The first date from which at least 90 % of the universe's own members have a price. */
+  priceCoverageFrom: string | null;
+  /** The index's catalog securities, and how many of them have no sector. */
+  indexSecurities: number | null;
+  unclassifiedSecurities: number | null;
+  warnings: { code: string; detail: string }[];
+  /** Per calendar year, at its last checkpoint: the List's detail only. */
+  byYear?: UniverseCoverageYearResponse[];
+};
+
+export type UniverseCoverageYearResponse = {
+  year: string;
+  indexLines: number;
+  indexMembers: number;
+  classified: number;
+  unclassified: number;
+  groupMembers: number;
+  groupPriced: number;
+  /** Index members over index lines: a line with no catalog security has no sector at all. */
+  constituentCoverage: number | null;
+  classifiedShare: number | null;
+  priceCoverage: number | null;
+  minPriceCoverage: number | null;
 };
 
 /** One row of `GET /lists`: enough to render the collection without loading memberships. */
@@ -219,4 +296,15 @@ export type HistoricalUniverseCatalogEntry = {
   availableFrom: string | null;
   /** Why it is unavailable, in a sentence; null when available. */
   unavailableReason: string | null;
+  /** The index it is drawn from, and that index's name: `SP500`, "S&P 500". */
+  indexKey: string;
+  underlyingIndex: string;
+  /** The sectors it holds, by name; empty for a universe that does not group by sector. */
+  includedSectors: string[];
+  /** How its members are classified; null for a universe that does not classify them. */
+  classification: UniverseClassificationResponse | null;
+  /** Distinct securities its List holds; null until published. */
+  historicalConstituents: number | null;
+  /** The coverage a classified universe discloses; null for any other, or before publication. */
+  coverage: UniverseCoverageResponse | null;
 };

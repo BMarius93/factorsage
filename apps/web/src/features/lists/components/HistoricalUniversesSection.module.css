@@ -65,3 +65,11 @@ a.nameLink:hover .name {
 .meta {
   font-size: var(--text-small);
 }
+
+/* A retrospectively classified universe's disclosure: always visible, never in a tooltip. */
+.disclosure {
+  color: var(--color-text-body);
+  font-size: var(--text-small);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}

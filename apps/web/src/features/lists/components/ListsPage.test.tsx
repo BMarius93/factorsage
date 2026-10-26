@@ -598,6 +598,34 @@ describe("ListsPage premium built-ins", () => {
   });
 });
 
+/** A universe that classifies nothing: an index, a ranking, or a blocked strict sector. */
+const POINT_IN_TIME = {
+  indexKey: "SP500",
+  underlyingIndex: "S&P 500",
+  includedSectors: [],
+  classification: null,
+  historicalConstituents: null,
+  coverage: null,
+};
+
+const DEFENSIVE_CLASSIFICATION = {
+  timing: "RETROSPECTIVE" as const,
+  scheme: "CURRENT_SECTOR" as const,
+  methodLabel: "Current sector applied retrospectively",
+  underlyingIndex: "S&P 500",
+  sectors: ["Consumer Staples", "Health Care", "Utilities"],
+  disclosure:
+    "Historical S&P 500 membership with retrospective sector classification. Sector assignments reflect currently available classifications and may differ from historical classifications.",
+};
+
+const DEFENSIVE_COVERAGE = {
+  reliableFrom: "2016-01-29",
+  priceCoverageFrom: "2003-12-31",
+  indexSecurities: 735,
+  unclassifiedSecurities: 2,
+  warnings: [],
+};
+
 describe("ListsPage historical universes", () => {
   const sp500 = summary("sp500-pit", "S&P 500 — Historical PIT", {
     ownership: "SYSTEM",
@@ -634,6 +662,8 @@ describe("ListsPage historical universes", () => {
             listId: "sp500-pit",
             availableFrom: "1996-01-02",
             unavailableReason: null,
+            ...POINT_IN_TIME,
+            historicalConstituents: 731,
           },
         ],
       },
@@ -652,6 +682,30 @@ describe("ListsPage historical universes", () => {
             availableFrom: null,
             unavailableReason:
               "Historical data unavailable: no point-in-time sector classification is available for past members, and today's sectors are never applied to the past.",
+            ...POINT_IN_TIME,
+          },
+        ],
+      },
+      {
+        key: "ECONOMIC_SUPERSECTORS",
+        label: "Economic Supersectors",
+        universes: [
+          {
+            key: "sp500-defensive",
+            name: "S&P 500 Defensive",
+            description: "Historical S&P 500 companies in defensive sectors.",
+            premium: true as const,
+            locked,
+            availability: "AVAILABLE" as const,
+            listId: "sp500-defensive",
+            availableFrom: "1996-01-02",
+            unavailableReason: null,
+            indexKey: "SP500",
+            underlyingIndex: "S&P 500",
+            includedSectors: ["Consumer Staples", "Health Care", "Utilities"],
+            classification: DEFENSIVE_CLASSIFICATION,
+            historicalConstituents: 162,
+            coverage: DEFENSIVE_COVERAGE,
           },
         ],
       },
@@ -698,6 +752,67 @@ describe("ListsPage historical universes", () => {
     expect(within(sector).queryByRole("link")).toBeNull();
     expect(within(sector).queryByTestId("premium-upgrade-hint")).toBeNull();
     expect(within(sector).queryByTestId("universe-requires-pro")).toBeNull();
+  });
+
+  it("tells a retrospectively classified universe apart, with its index, sectors, method, size, coverage and disclosure", async () => {
+    useAuthSessionMock.mockReturnValue(signedInSession({ plan: "STARTER" }));
+    fetchStockListsMock.mockResolvedValue([
+      sp500,
+      summary("sp500-defensive", "S&P 500 Defensive", {
+        ownership: "SYSTEM",
+        systemKey: "sp500-defensive",
+        canEdit: false,
+        premium: true,
+        itemCount: 162,
+        universe: {
+          kind: "POINT_IN_TIME_INDEX",
+          indexKey: "SP500",
+          universeKey: "sp500-defensive",
+          category: "ECONOMIC_SUPERSECTORS",
+          derived: true,
+          distinctSecurities: 162,
+          peakSimultaneousMembers: 101,
+          currentMembers: 80,
+          membershipFloor: "1996-01-02",
+          syncedAt: null,
+          classification: DEFENSIVE_CLASSIFICATION,
+          coverage: DEFENSIVE_COVERAGE,
+        },
+      }),
+    ]);
+    fetchHistoricalUniversesMock.mockResolvedValue(catalog(true));
+    render(<ListsPage />);
+
+    const section = await screen.findByTestId("historical-universes-ECONOMIC_SUPERSECTORS");
+    expect(section.textContent).toContain("Economic Supersectors");
+    const row = within(section).getByTestId("historical-universe");
+    expect(within(row).getByTestId("universe-retrospective-badge").textContent).toBe(
+      "Retrospective classification",
+    );
+    expect(within(row).getByTestId("universe-pro-badge").textContent).toBe("Pro, locked");
+    expect(within(row).getByTestId("universe-classification-facts").textContent).toBe(
+      "Underlying index: S&P 500 · Sectors: Consumer Staples, Health Care, Utilities",
+    );
+    expect(within(row).getByTestId("universe-classification-method").textContent).toBe(
+      "Classification method: Current sector applied retrospectively",
+    );
+    expect(within(row).getByTestId("universe-classification-disclosure").textContent).toBe(
+      DEFENSIVE_CLASSIFICATION.disclosure,
+    );
+    expect(within(row).getByTestId("universe-size").textContent).toContain(
+      "Membership point-in-time from 1996 · 162 historical constituents, up to 101 at once",
+    );
+    const coverage = within(row).getByTestId("universe-coverage").textContent ?? "";
+    expect(coverage).toContain("price history from 2016");
+    expect(coverage).toContain("lean toward survivors");
+    expect(coverage).toContain("own members have a price from 2003");
+    expect(coverage).toContain("2 of 735 S&P 500 stocks have no available sector");
+    expect(within(row).getByTestId("universe-requires-pro")).toBeTruthy();
+
+    // A point-in-time universe carries no such badge.
+    const indices = screen.getByTestId("historical-universes-MARKET_INDICES");
+    expect(within(indices).queryByTestId("universe-retrospective-badge")).toBeNull();
+    expect(within(indices).queryByTestId("universe-classification-disclosure")).toBeNull();
   });
 
   it("shows the Pro label unlocked on a plan that includes it", async () => {

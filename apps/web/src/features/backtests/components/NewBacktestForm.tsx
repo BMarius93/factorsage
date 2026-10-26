@@ -45,6 +45,7 @@ import {
 } from "../utils/submission";
 import { EntitySelect } from "../../../components/ui/EntitySelect";
 import { Select } from "../../../components/ui/Select";
+import { coverageSentences } from "../../lists/components/UniverseClassification";
 import { MoneyInput } from "./MoneyInput";
 import styles from "./NewBacktestForm.module.css";
 
@@ -660,6 +661,17 @@ export function NewBacktestForm() {
                       {chosenUniverse.distinctSecurities} stocks over time, up
                       to {chosenUniverse.peakSimultaneousMembers} at once. Each
                       stock is bought only while it was a member.
+                      {chosenUniverse.classification ? (
+                        // A retrospectively classified universe says so before the run, not after.
+                        <span data-testid="backtest-universe-classification">
+                          {" "}
+                          {chosenUniverse.classification.disclosure}{" "}
+                          {coverageSentences(
+                            chosenUniverse.coverage,
+                            chosenUniverse.classification.underlyingIndex,
+                          ).join(" ")}
+                        </span>
+                      ) : null}
                     </p>
                   ) : null}
                 </div>

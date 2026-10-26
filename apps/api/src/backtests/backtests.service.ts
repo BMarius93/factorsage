@@ -685,6 +685,31 @@ function configurationOf(
       methodologyVersion: snapshot.benchmark.methodologyVersion,
     },
     methodology: snapshot.methodology,
+    ...stockListClassificationOf(snapshot),
+  };
+}
+
+/**
+ * The classification a retrospectively classified universe's run rests on, from the catalog entry
+ * its snapshot's frozen `universeKey` names — the snapshot itself is untouched.
+ */
+function stockListClassificationOf(
+  snapshot: BacktestRunSnapshot,
+): Pick<BacktestRunConfigurationResponse, "stockListClassification"> {
+  const universeKey = snapshot.stockList.universe?.universeKey;
+  const classification = universeKey ? maintainedUniverseForList(universeKey)?.classification : null;
+  if (!classification) {
+    return {};
+  }
+  return {
+    stockListClassification: {
+      timing: classification.timing,
+      scheme: classification.scheme,
+      methodLabel: classification.methodLabel,
+      underlyingIndex: classification.underlyingIndex,
+      sectors: [...classification.sectorNames],
+      disclosure: classification.disclosure,
+    },
   };
 }
 

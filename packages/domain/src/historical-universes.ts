@@ -21,6 +21,7 @@
 
 import type { LocalDate } from "./stock-data.js";
 import {
+  marketIndexName,
   pointInTimeIndexUniverse,
   SP500_HISTORICAL_PIT_UNIVERSE,
   type MarketIndexKey,
@@ -30,12 +31,32 @@ import {
 export const HISTORICAL_UNIVERSE_CATEGORIES = [
   "MARKET_INDICES",
   "SP500_SECTORS",
+  /** S&P 500 members grouped by economic supersector, classified retrospectively. */
+  "ECONOMIC_SUPERSECTORS",
   "MARKET_CAPITALIZATION",
   "INVESTMENT_STYLES",
   "DOW_STRATEGIES",
   /** Internal candidates: generated and validated for research, never in the public catalog. */
   "RESEARCH",
 ] as const;
+
+/**
+ * Where each category's Lists sit among the built-in Lists: a published List's `displayOrder` is its
+ * category's base plus its order inside the category. Fixed per category rather than derived from
+ * the category's position, so a category added later never renumbers Lists already published.
+ */
+export const HISTORICAL_UNIVERSE_LIST_ORDER_BASE = {
+  MARKET_INDICES: 0,
+  SP500_SECTORS: 100,
+  ECONOMIC_SUPERSECTORS: 150,
+  MARKET_CAPITALIZATION: 200,
+  INVESTMENT_STYLES: 300,
+  DOW_STRATEGIES: 400,
+  RESEARCH: 600,
+} as const satisfies Record<
+  (typeof HISTORICAL_UNIVERSE_CATEGORIES)[number],
+  number
+>;
 
 export type HistoricalUniverseCategory =
   (typeof HISTORICAL_UNIVERSE_CATEGORIES)[number];
@@ -46,6 +67,7 @@ export const HISTORICAL_UNIVERSE_CATEGORY_LABELS: Readonly<
 > = {
   MARKET_INDICES: "Market Indices",
   SP500_SECTORS: "S&P 500 Sectors",
+  ECONOMIC_SUPERSECTORS: "Economic Supersectors",
   MARKET_CAPITALIZATION: "Market Cap",
   INVESTMENT_STYLES: "Investment Styles",
   DOW_STRATEGIES: "Dow Strategies",
@@ -170,12 +192,78 @@ export const GICS_SECTORS = [
 
 export type GicsSector = (typeof GICS_SECTORS)[number];
 
+/** Each sector's name as the product shows it. */
+export const GICS_SECTOR_NAMES: Readonly<Record<GicsSector, string>> = {
+  INFORMATION_TECHNOLOGY: "Information Technology",
+  FINANCIALS: "Financials",
+  HEALTH_CARE: "Health Care",
+  ENERGY: "Energy",
+  INDUSTRIALS: "Industrials",
+  UTILITIES: "Utilities",
+  COMMUNICATION_SERVICES: "Communication Services",
+  CONSUMER_DISCRETIONARY: "Consumer Discretionary",
+  CONSUMER_STAPLES: "Consumer Staples",
+  MATERIALS: "Materials",
+  REAL_ESTATE: "Real Estate",
+};
+
+/**
+ * FactorSage's three economic supersectors: every sector in exactly one
+ * (`docs/decisions/historical-universes-v1.md` §2.1). A FactorSage grouping, not a licensed index.
+ */
+export const ECONOMIC_SUPERSECTORS = {
+  CYCLICAL: [
+    "FINANCIALS",
+    "CONSUMER_DISCRETIONARY",
+    "MATERIALS",
+    "REAL_ESTATE",
+  ],
+  DEFENSIVE: ["CONSUMER_STAPLES", "HEALTH_CARE", "UTILITIES"],
+  SENSITIVE: [
+    "INFORMATION_TECHNOLOGY",
+    "COMMUNICATION_SERVICES",
+    "INDUSTRIALS",
+    "ENERGY",
+  ],
+} as const satisfies Record<string, readonly GicsSector[]>;
+
+export type EconomicSupersector = keyof typeof ECONOMIC_SUPERSECTORS;
+
+/** The supersector a sector belongs to. */
+export function economicSupersectorOf(sector: GicsSector): EconomicSupersector {
+  for (const [supersector, sectors] of Object.entries(ECONOMIC_SUPERSECTORS)) {
+    if ((sectors as readonly GicsSector[]).includes(sector)) {
+      return supersector as EconomicSupersector;
+    }
+  }
+  throw new Error(`${sector} belongs to no economic supersector`);
+}
+
+/**
+ * Shown wherever a retrospectively classified universe is: its membership is point-in-time, its
+ * sectors are not.
+ */
+export const RETROSPECTIVE_CLASSIFICATION_DISCLOSURE =
+  "Historical S&P 500 membership with retrospective sector classification. Sector assignments " +
+  "reflect currently available classifications and may differ from historical classifications.";
+
 export type UniverseMethod =
   | { readonly kind: "INDEX_MEMBERSHIP"; readonly indexKey: MarketIndexKey }
   | {
       readonly kind: "SECTOR";
       readonly indexKey: MarketIndexKey;
       readonly sector: GicsSector;
+    }
+  /**
+   * An index's members whose **current** classification is one of `sectors`, over the index's own
+   * point-in-time membership windows. The classification is retrospective by construction — today's
+   * sector applied to every date — and every surface that shows the universe says so.
+   */
+  | {
+      readonly kind: "CLASSIFICATION";
+      readonly indexKey: MarketIndexKey;
+      readonly scheme: "CURRENT_SECTOR";
+      readonly sectors: readonly GicsSector[];
     }
   | {
       readonly kind: "RANK";
@@ -204,6 +292,8 @@ export const UNIVERSE_DATA_REQUIREMENTS = [
   "STOCK_SPLITS",
   /** Point-in-time GICS sector of each member on each date. No source in V1. */
   "HISTORICAL_SECTOR_CLASSIFICATION",
+  /** Each security's current sector, as the provider reports it today (`Security.sector`). */
+  "CURRENT_SECTOR_CLASSIFICATION",
 ] as const;
 
 export type UniverseDataRequirement =
@@ -298,6 +388,49 @@ function sectorUniverse(
   };
 }
 
+/**
+ * An economic supersector of the S&P 500: the index's own point-in-time membership, filtered by each
+ * member's current sector. The membership windows are the index's exactly; only the classification
+ * is retrospective.
+ */
+function supersectorUniverse(input: {
+  key: string;
+  name: string;
+  supersector: EconomicSupersector;
+  displayOrder: number;
+  description: string;
+}): HistoricalUniverseDefinition {
+  const sectors = ECONOMIC_SUPERSECTORS[input.supersector];
+  return {
+    key: input.key,
+    name: input.name,
+    description: input.description,
+    category: "ECONOMIC_SUPERSECTORS",
+    audience: "CATALOG",
+    displayOrder: input.displayOrder,
+    method: {
+      kind: "CLASSIFICATION",
+      indexKey: "SP500",
+      scheme: "CURRENT_SECTOR",
+      sectors,
+    },
+    methodologyVersion: 1,
+    methodology:
+      `Every S&P 500 member since 1996, over its own point-in-time membership windows (entry, ` +
+      `exit and re-entry exactly as the index's List holds them), whose current sector is one of ` +
+      `${sectors.map((sector) => GICS_SECTOR_NAMES[sector]).join(", ")}. The sector is the ` +
+      "provider's current classification of the company, normalized to these names, applied to " +
+      "every date: it is retrospective, not the classification in force at the time, and a " +
+      "member the provider reports no sector for is left out and reported as unclassified. A " +
+      "FactorSage grouping, not a licensed index.",
+    requires: [
+      "INDEX_MEMBERSHIP",
+      "DAILY_PRICES",
+      "CURRENT_SECTOR_CLASSIFICATION",
+    ],
+  };
+}
+
 function rank(input: {
   key: string;
   name: string;
@@ -337,7 +470,7 @@ function rank(input: {
   };
 }
 
-/** The customer-facing catalog: the 23 agreed universes. */
+/** The customer-facing catalog: the 26 agreed universes. */
 const CATALOG: readonly HistoricalUniverseDefinition[] = [
   {
     key: "sp500-historical-pit",
@@ -412,6 +545,36 @@ const CATALOG: readonly HistoricalUniverseDefinition[] = [
     11,
     " The sector exists only from 2016-09-19; before it, these companies were Financials.",
   ),
+  supersectorUniverse({
+    key: "sp500-cyclical",
+    name: "S&P 500 Cyclical",
+    supersector: "CYCLICAL",
+    displayOrder: 1,
+    description:
+      "Historical S&P 500 companies in economically cyclical sectors, including financials, " +
+      "consumer discretionary, materials, and real estate. Designed for researching strategies " +
+      "sensitive to economic expansion and contraction.",
+  }),
+  supersectorUniverse({
+    key: "sp500-defensive",
+    name: "S&P 500 Defensive",
+    supersector: "DEFENSIVE",
+    displayOrder: 2,
+    description:
+      "Historical S&P 500 companies in defensive sectors, including consumer staples, health " +
+      "care, and utilities. Designed for researching businesses associated with relatively " +
+      "stable demand across economic cycles.",
+  }),
+  supersectorUniverse({
+    key: "sp500-sensitive",
+    name: "S&P 500 Sensitive",
+    supersector: "SENSITIVE",
+    displayOrder: 3,
+    description:
+      "Historical S&P 500 companies in economically sensitive sectors, including technology, " +
+      "communication services, industrials, and energy. Designed for researching businesses " +
+      "exposed to changes in economic activity and market conditions.",
+  }),
   rank({
     key: "sp500-top100-market-cap",
     name: "S&P 500 Top 100 by Market Cap",
@@ -908,7 +1071,11 @@ export function rootIndexOf(
   definition: HistoricalUniverseDefinition,
 ): MarketIndexKey {
   const method = definition.method;
-  if (method.kind === "INDEX_MEMBERSHIP" || method.kind === "SECTOR") {
+  if (
+    method.kind === "INDEX_MEMBERSHIP" ||
+    method.kind === "SECTOR" ||
+    method.kind === "CLASSIFICATION"
+  ) {
     return method.indexKey;
   }
   if (method.parent.kind === "INDEX") {
@@ -947,9 +1114,50 @@ export type MaintainedUniverse = {
   readonly indexKey: MarketIndexKey;
   /** The earliest date its membership is measured from; its List starts no earlier. */
   readonly membershipFloor: LocalDate;
-  /** False for an index's own membership, true for a ranking drawn from one. */
+  /** False for an index's own membership, true for a universe drawn from one. */
   readonly derived: boolean;
+  /**
+   * How its members are classified, when they are: `null` for an index's own membership and for a
+   * ranking, whose every input is point-in-time.
+   */
+  readonly classification: UniverseClassification | null;
 };
+
+/** A retrospectively classified universe's classification, as every surface discloses it. */
+export type UniverseClassification = {
+  /** The classification is today's, applied to every date: never point-in-time. */
+  readonly timing: "RETROSPECTIVE";
+  readonly scheme: "CURRENT_SECTOR";
+  /** The method as the product names it: "Current sector applied retrospectively". */
+  readonly methodLabel: string;
+  /** The index whose point-in-time membership is classified, by name: "S&P 500". */
+  readonly underlyingIndex: string;
+  readonly sectors: readonly GicsSector[];
+  readonly sectorNames: readonly string[];
+  readonly disclosure: string;
+};
+
+export const RETROSPECTIVE_CLASSIFICATION_METHOD_LABEL =
+  "Current sector applied retrospectively";
+
+/** A universe's classification, or `null` when it has none to disclose. */
+export function classificationOf(
+  definition: HistoricalUniverseDefinition,
+): UniverseClassification | null {
+  const method = definition.method;
+  if (method.kind !== "CLASSIFICATION") {
+    return null;
+  }
+  return {
+    timing: "RETROSPECTIVE",
+    scheme: method.scheme,
+    methodLabel: RETROSPECTIVE_CLASSIFICATION_METHOD_LABEL,
+    underlyingIndex: marketIndexName(method.indexKey),
+    sectors: method.sectors,
+    sectorNames: method.sectors.map((sector) => GICS_SECTOR_NAMES[sector]),
+    disclosure: RETROSPECTIVE_CLASSIFICATION_DISCLOSURE,
+  };
+}
 
 /** The catalog universe whose built-in List has `systemKey`; `null` for every other List. */
 export function maintainedUniverseForList(
@@ -970,23 +1178,31 @@ export function maintainedUniverseOf(
     definition.method.kind === "INDEX_MEMBERSHIP"
       ? pointInTimeIndexUniverse(definition.method.indexKey)
       : null;
+  const classification = classificationOf(definition);
   return {
     universeKey: definition.key,
     listSystemKey: definition.key,
     listName: index?.listName ?? definition.name,
-    listDescription: index?.listDescription ?? definition.description,
+    // A classified universe's List carries its disclosure wherever the List is shown.
+    listDescription:
+      index?.listDescription ??
+      (classification
+        ? `${definition.description} ${classification.disclosure}`
+        : definition.description),
     category: definition.category,
     displayOrder: definition.displayOrder,
     indexKey: rootIndexOf(definition),
     membershipFloor: HISTORICAL_UNIVERSE_FLOOR,
     derived: definition.method.kind !== "INDEX_MEMBERSHIP",
+    classification,
   };
 }
 
 /**
  * The first day a published universe's List carries: the S&P 500's own List keeps the floor it was
- * published with (`sp500-historical-pit-v1.md`, with its survivorship disclosure); every other
- * universe starts at its validated reliable period's first effective date, `publishFrom`.
+ * published with (`sp500-historical-pit-v1.md`, with its survivorship disclosure), and so does a
+ * retrospectively classified one, which follows its index from the floor; every other universe
+ * starts at its validated reliable period's first effective date, `publishFrom`.
  */
 export function publishedListFloor(
   key: string,
@@ -994,6 +1210,11 @@ export function publishedListFloor(
 ): LocalDate | null {
   if (key === SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey) {
     return SP500_HISTORICAL_PIT_UNIVERSE.membershipFloor;
+  }
+  // A retrospectively classified universe follows its index's membership from the floor, as the
+  // owner decided (historical-universes-v1.md §2.1): its price coverage is disclosed, not gated.
+  if (historicalUniverse(key)?.method.kind === "CLASSIFICATION") {
+    return HISTORICAL_UNIVERSE_FLOOR;
   }
   return publishFrom;
 }

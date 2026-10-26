@@ -26,6 +26,17 @@ export const MARKET_INDEX_KEYS = ["SP500", "NASDAQ100", "DOW30"] as const;
 
 export type MarketIndexKey = (typeof MARKET_INDEX_KEYS)[number];
 
+/** Each index's name as the product shows it. */
+export const MARKET_INDEX_NAMES: Readonly<Record<MarketIndexKey, string>> = {
+  SP500: "S&P 500",
+  NASDAQ100: "Nasdaq-100",
+  DOW30: "Dow Jones 30",
+};
+
+export function marketIndexName(indexKey: MarketIndexKey): string {
+  return MARKET_INDEX_NAMES[indexKey];
+}
+
 export function isMarketIndexKey(value: unknown): value is MarketIndexKey {
   return (
     typeof value === "string" &&

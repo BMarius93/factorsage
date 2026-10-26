@@ -6,6 +6,8 @@ import type {
   StockListItemResponse,
   StockListSummaryResponse,
   StockListUniverseResponse,
+  UniverseClassificationResponse,
+  UniverseCoverageResponse,
   UpdateStockListRequest,
 } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
@@ -16,6 +18,7 @@ import {
   HISTORICAL_UNIVERSE_FLOOR,
   maintainedUniverseForList,
   maintainedUniverseOf,
+  marketIndexName,
   normalizeBuyWindowConfiguration,
   peakSimultaneousMembers,
   publishedListFloor,
@@ -23,6 +26,7 @@ import {
   type BuyWindowConfiguration,
   type HistoricalUniverseDefinition,
   type MaintainedUniverse,
+  type UniverseClassification,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
@@ -189,6 +193,102 @@ function unavailableReasonOf(
   return "Historical data unavailable: its point-in-time data has not been validated yet.";
 }
 
+/**
+ * What a published generation of a classified universe stored, as read back: its validation's
+ * coverage and warnings, and — on a List's detail — its summary's classification audit. Both are
+ * the generator's JSON (`packages/stock-data/src/historical-universes`), read defensively.
+ */
+type PublishedClassification = {
+  readonly validation: unknown;
+  readonly summary?: unknown;
+};
+
+type StoredWarning = {
+  code?: unknown;
+  detail?: unknown;
+  securities?: unknown;
+  indexSecurities?: unknown;
+  coveredFrom?: unknown;
+};
+
+type StoredAudit = {
+  source?: unknown;
+  mappingVersion?: unknown;
+  asOf?: { latest?: unknown };
+  indexSecurities?: unknown;
+  classifiedSecurities?: unknown;
+  unclassified?: { symbol?: unknown; name?: unknown; reason?: unknown }[];
+  byYear?: UniverseCoverageResponse["byYear"];
+};
+
+const stringOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const numberOrNull = (value: unknown): number | null => (typeof value === "number" ? value : null);
+
+/** A classified universe's classification, with its audit when the published summary is read. */
+function classificationResponse(
+  classification: UniverseClassification,
+  published?: PublishedClassification | null,
+): UniverseClassificationResponse {
+  const response: UniverseClassificationResponse = {
+    timing: classification.timing,
+    scheme: classification.scheme,
+    methodLabel: classification.methodLabel,
+    underlyingIndex: classification.underlyingIndex,
+    sectors: [...classification.sectorNames],
+    disclosure: classification.disclosure,
+  };
+  const audit = (published?.summary as { classification?: StoredAudit } | null | undefined)
+    ?.classification;
+  if (!audit) {
+    return response;
+  }
+  return {
+    ...response,
+    audit: {
+      source: stringOrNull(audit.source) ?? "FMP_COMPANY_PROFILE_SECTOR",
+      mappingVersion: numberOrNull(audit.mappingVersion) ?? 0,
+      asOf: stringOrNull(audit.asOf?.latest),
+      indexSecurities: numberOrNull(audit.indexSecurities) ?? 0,
+      classifiedSecurities: numberOrNull(audit.classifiedSecurities) ?? 0,
+      unclassified: (audit.unclassified ?? []).map((entry) => ({
+        symbol: stringOrNull(entry.symbol) ?? "",
+        name: stringOrNull(entry.name) ?? "",
+        reason: entry.reason === "UNSUPPORTED" ? ("UNSUPPORTED" as const) : ("MISSING" as const),
+      })),
+    },
+  };
+}
+
+/** The coverage a published classified universe discloses; null before publication. */
+function coverageResponse(
+  published: PublishedClassification | null | undefined,
+): UniverseCoverageResponse | null {
+  const validation = published?.validation as
+    | { reliableFrom?: unknown; warnings?: StoredWarning[] }
+    | null
+    | undefined;
+  if (!validation) {
+    return null;
+  }
+  const warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
+  const find = (code: string) => warnings.find((warning) => warning.code === code);
+  const unclassified = find("UNCLASSIFIED_MEMBERS");
+  const response: UniverseCoverageResponse = {
+    reliableFrom: stringOrNull(validation.reliableFrom),
+    priceCoverageFrom: stringOrNull(find("INCOMPLETE_PRICE_COVERAGE")?.coveredFrom),
+    indexSecurities: numberOrNull(unclassified?.indexSecurities),
+    unclassifiedSecurities: numberOrNull(unclassified?.securities),
+    warnings: warnings.flatMap((warning) =>
+      typeof warning.code === "string" && typeof warning.detail === "string"
+        ? [{ code: warning.code, detail: warning.detail }]
+        : [],
+    ),
+  };
+  const byYear = (published?.summary as { classification?: StoredAudit } | null | undefined)
+    ?.classification?.byYear;
+  return Array.isArray(byYear) ? { ...response, byYear } : response;
+}
+
 /** How a premium refusal names this List: a point-in-time universe, or a premium predefined List. */
 function premiumKindOf(list: {
   ownership: "USER" | "SYSTEM";
@@ -206,7 +306,9 @@ export function universeResponse(
   windows: readonly BuyWindowConfiguration[],
   today: string,
   syncedAt: Date | null,
+  published?: PublishedClassification | null,
 ): StockListUniverseResponse {
+  const coverage = universe.classification ? coverageResponse(published) : null;
   return {
     kind: "POINT_IN_TIME_INDEX",
     indexKey: universe.indexKey,
@@ -223,6 +325,10 @@ export function universeResponse(
     ).length,
     membershipFloor: universe.membershipFloor,
     syncedAt: syncedAt?.toISOString() ?? null,
+    ...(universe.classification
+      ? { classification: classificationResponse(universe.classification, published) }
+      : {}),
+    ...(coverage ? { coverage } : {}),
   };
 }
 
@@ -387,9 +493,10 @@ export class StockListsService {
                 | { publishFrom?: string | null }
                 | null
                 | undefined;
+              const universe = maintainedUniverseOf(definition);
               return {
                 key: definition.key,
-                name: maintainedUniverseOf(definition).listName,
+                name: universe.listName,
                 description: definition.description,
                 premium: true as const,
                 locked,
@@ -400,6 +507,19 @@ export class StockListsService {
                     HISTORICAL_UNIVERSE_FLOOR)
                   : null,
                 unavailableReason: available ? null : unavailableReasonOf(definition, state?.status),
+                indexKey: universe.indexKey,
+                underlyingIndex: marketIndexName(universe.indexKey),
+                includedSectors: universe.classification
+                  ? [...universe.classification.sectorNames]
+                  : [],
+                classification: universe.classification
+                  ? classificationResponse(universe.classification)
+                  : null,
+                historicalConstituents: available ? (list?._count.items ?? null) : null,
+                coverage:
+                  available && universe.classification
+                    ? coverageResponse(state?.publishedGeneration)
+                    : null,
               };
             }),
         }),
@@ -446,6 +566,26 @@ export class StockListsService {
     return sync?.completedAt ?? null;
   }
 
+  /**
+   * A classified universe's published generation, for its coverage and — on a List's detail — its
+   * classification audit; null for any other universe or before publication.
+   */
+  private async publishedClassification(
+    universe: MaintainedUniverse,
+    detail: boolean,
+  ): Promise<PublishedClassification | null> {
+    if (!universe.classification) {
+      return null;
+    }
+    const state = await this.prisma.historicalUniverse.findUnique({
+      where: { key: universe.universeKey },
+      select: {
+        publishedGeneration: { select: { validation: true, summary: detail } },
+      },
+    });
+    return state?.publishedGeneration ?? null;
+  }
+
   /** A maintained universe's measured size, read from its members' windows. */
   private async measureUniverse(
     listId: string,
@@ -472,6 +612,8 @@ export class StockListsService {
       })),
       new Date().toISOString().slice(0, 10),
       await this.latestSync(universe),
+      // The detail reads the audit; the collection only the coverage.
+      await this.publishedClassification(universe, loaded !== undefined),
     );
   }
 

@@ -9,6 +9,8 @@ import {
   publishFloorOf,
   publishHistoricalUniverse,
   PublicationRefusedError,
+  renderReportMarkdown,
+  type HistoricalUniverseReportEntry,
 } from "./historical-universes";
 import { runDividendIngestion } from "./index-universe/index-universe-dividends";
 
@@ -123,7 +125,7 @@ describe("historical universes command", () => {
     ).toEqual(["dogs-of-the-dow"]);
     expect(
       parseHistoricalUniversesArguments(["generate", "--catalog"]).keys,
-    ).toHaveLength(23);
+    ).toHaveLength(26);
     expect(parseHistoricalUniversesArguments(["publish", KEY]).keys).toEqual([
       KEY,
     ]);
@@ -144,6 +146,12 @@ describe("historical universes command", () => {
         publishFrom: "2016-01-01",
       }),
     ).toBe("1996-01-02");
+    // A retrospectively classified universe follows its index from the floor.
+    expect(
+      publishFloorOf({ key: "sp500-cyclical" } as never, {
+        publishFrom: "2016-02-01",
+      }),
+    ).toBe("1996-01-02");
     const clipped = clipPeriods(
       new Map([
         [
@@ -162,6 +170,90 @@ describe("historical universes command", () => {
     expect([...clipped.entries()]).toEqual([
       ["b", [{ startDate: "2015-01-01", endDate: null }]],
     ]);
+  });
+
+  it("reports a classified universe's classification audit and its coverage by year", () => {
+    const entry: HistoricalUniverseReportEntry = {
+      key: "sp500-defensive",
+      name: "S&P 500 Defensive",
+      category: "ECONOMIC_SUPERSECTORS",
+      audience: "CATALOG",
+      methodologyVersion: 1,
+      method: {
+        kind: "CLASSIFICATION",
+        indexKey: "SP500",
+        scheme: "CURRENT_SECTOR",
+        sectors: ["CONSUMER_STAPLES", "HEALTH_CARE", "UTILITIES"],
+      },
+      requires: [],
+      status: "VALIDATED",
+      statusReasons: null,
+      publishedAt: null,
+      publishedGenerationId: null,
+      generation: {
+        id: "g",
+        completedAt: null,
+        inputDigest: null,
+        summary: {
+          distinctSecurities: 162,
+          peakSimultaneousMembers: 101,
+          peakDate: "2001-01-02",
+          classification: {
+            mappingVersion: 1,
+            asOf: {
+              earliest: "2026-10-23",
+              latest: "2026-10-24",
+              withoutProfileSync: 0,
+            },
+            indexSecurities: 735,
+            classifiedSecurities: 733,
+            bySector: { HEALTH_CARE: 82 },
+            unclassified: [
+              {
+                symbol: "CELG",
+                name: "Celgene Corporation",
+                reason: "MISSING",
+                stored: null,
+              },
+            ],
+            byYear: [
+              {
+                year: "1996",
+                indexLines: 500,
+                indexMembers: 260,
+                classified: 259,
+                unclassified: 1,
+                groupMembers: 60,
+                groupPriced: 55,
+                constituentCoverage: 0.52,
+                classifiedShare: 0.996,
+                priceCoverage: 0.9167,
+                minPriceCoverage: 0.9,
+              },
+            ],
+          },
+        },
+        verdict: "VALIDATED",
+        reliableFrom: "2016-01-29",
+        publishFrom: "1996-01-02",
+        reasons: [],
+        warnings: [{ code: "SURVIVORSHIP_BIAS", detail: "Before 2016-01-29." }],
+        byYear: [],
+      },
+    };
+    const markdown = renderReportMarkdown([entry]);
+    expect(markdown).toContain(
+      "current sector (retrospective): Consumer Staples, Health Care, Utilities",
+    );
+    expect(markdown).toContain(
+      "`sp500-defensive` — classification and coverage",
+    );
+    expect(markdown).toContain("mapping version 1");
+    expect(markdown).toContain("CELG (Celgene Corporation; MISSING)");
+    expect(markdown).toContain("- SURVIVORSHIP_BIAS: Before 2016-01-29.");
+    expect(markdown).toContain(
+      "| 1996 | 500 | 260 | 259 | 1 | 60 | 55 | 52 % | 100 % | 92 % (90 %) |",
+    );
   });
 
   it("refuses a blocked universe with its reason", async () => {

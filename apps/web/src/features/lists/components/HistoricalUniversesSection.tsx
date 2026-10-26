@@ -16,6 +16,10 @@ import {
 import { useHistoricalUniverses } from "../hooks/use-historical-universes";
 import forms from "../../../components/ui/forms.module.css";
 import styles from "./HistoricalUniversesSection.module.css";
+import {
+  coverageSentences,
+  RetrospectiveClassificationBadge,
+} from "./UniverseClassification";
 
 /**
  * FactorSage's historical universes, grouped as the catalog groups them
@@ -27,6 +31,10 @@ import styles from "./HistoricalUniversesSection.module.css";
  *   "Pro" label, and the way to the plans under it.
  * - **Historical data unavailable** — the point-in-time data it needs does not exist or has not been
  *   validated, whatever the plan: no link, and the reason in words.
+ *
+ * A retrospectively classified universe (the economic supersectors) also carries a "Retrospective
+ * classification" badge, its index, sectors and method, and its disclosure, so it never reads as a
+ * point-in-time sector classification.
  *
  * Metadata only: the catalog and the summaries `GET /lists` already returned. Nothing here loads a
  * membership or stock data.
@@ -117,6 +125,7 @@ function UniverseRow({
         label="Pro"
         testId="universe-pro-badge"
       />
+      {universe.classification ? <RetrospectiveClassificationBadge /> : null}
       {available ? null : (
         <StatusBadge
           tone="neutral"
@@ -129,6 +138,10 @@ function UniverseRow({
       )}
     </span>
   );
+  const classification = universe.classification;
+  const coverage = classification
+    ? coverageSentences(universe.coverage, classification.underlyingIndex)
+    : [];
   return (
     <li
       className={styles.row}
@@ -145,11 +158,40 @@ function UniverseRow({
         <span className={styles.nameLink}>{name}</span>
       )}
       <span className={styles.description}>{universe.description}</span>
+      {classification ? (
+        <>
+          <span
+            className={styles.meta}
+            data-testid="universe-classification-facts"
+          >
+            Underlying index: {universe.underlyingIndex} · Sectors:{" "}
+            {universe.includedSectors.join(", ")}
+          </span>
+          <span
+            className={styles.meta}
+            data-testid="universe-classification-method"
+          >
+            Classification method: {classification.methodLabel}
+          </span>
+          <span
+            className={styles.disclosure}
+            data-testid="universe-classification-disclosure"
+          >
+            {classification.disclosure}
+          </span>
+        </>
+      ) : null}
       {available && size ? (
         <span className={styles.meta} data-testid="universe-size">
-          Point-in-time from {universe.availableFrom?.slice(0, 4)} ·{" "}
-          {size.distinctSecurities} stocks over time, up to{" "}
-          {size.peakSimultaneousMembers} at once
+          {classification ? "Membership point-in-time" : "Point-in-time"} from{" "}
+          {universe.availableFrom?.slice(0, 4)} · {size.distinctSecurities}{" "}
+          {classification ? "historical constituents" : "stocks over time"}, up
+          to {size.peakSimultaneousMembers} at once
+        </span>
+      ) : null}
+      {available && coverage.length > 0 ? (
+        <span className={styles.meta} data-testid="universe-coverage">
+          {coverage.join(" ")}
         </span>
       ) : null}
       {available ? null : (

@@ -8,7 +8,8 @@ import {
 } from "@intrinsic/contracts";
 import {
   CATALOG_HISTORICAL_UNIVERSES,
-  HISTORICAL_UNIVERSE_CATEGORIES,
+  GICS_SECTOR_NAMES,
+  HISTORICAL_UNIVERSE_LIST_ORDER_BASE,
   HISTORICAL_UNIVERSES,
   maintainedUniverseOf,
   normalizeBuyWindowRanges,
@@ -237,9 +238,6 @@ export async function publishHistoricalUniverse(input: {
     );
   }
   const universe = maintainedUniverseOf(definition);
-  const categoryOrder = HISTORICAL_UNIVERSE_CATEGORIES.indexOf(
-    definition.category,
-  );
   const written = await writeIndexUniverseList({
     prisma,
     universe,
@@ -253,7 +251,8 @@ export async function publishHistoricalUniverse(input: {
     displayOrder:
       definition.key === SP500_HISTORICAL_PIT_UNIVERSE.listSystemKey
         ? 0
-        : categoryOrder * 100 + definition.displayOrder,
+        : HISTORICAL_UNIVERSE_LIST_ORDER_BASE[definition.category] +
+          definition.displayOrder,
   });
   await prisma.historicalUniverse.update({
     where: { key: definition.key },
@@ -298,6 +297,8 @@ export type HistoricalUniverseReportEntry = {
     readonly reliableFrom: string | null;
     readonly publishFrom: string | null;
     readonly reasons: readonly unknown[];
+    /** Disclosures that do not gate publication: a classified universe's coverage. */
+    readonly warnings: readonly unknown[];
     readonly byYear: readonly unknown[];
   } | null;
 };
@@ -337,6 +338,7 @@ export async function historicalUniversesReport(
             reliableFrom: validation?.reliableFrom ?? null,
             publishFrom: validation?.publishFrom ?? null,
             reasons: validation?.reasons ?? [],
+            warnings: validation?.warnings ?? [],
             byYear: validation?.byYear ?? [],
           }
         : null,
@@ -364,6 +366,14 @@ function describeMethod(method: HistoricalUniverseDefinition["method"]): {
       metric: `GICS ${method.sector}`,
       n: "all",
       frequency: "daily",
+    };
+  }
+  if (method.kind === "CLASSIFICATION") {
+    return {
+      parent: method.indexKey,
+      metric: `current sector (retrospective): ${method.sectors.map((sector) => GICS_SECTOR_NAMES[sector]).join(", ")}`,
+      n: "all",
+      frequency: "as changed",
     };
   }
   return {
@@ -452,7 +462,92 @@ export function renderReportMarkdown(
     }
     lines.push("");
   }
+  lines.push(...renderClassificationMarkdown(entries));
   return `${lines.join("\n")}\n`;
+}
+
+type ClassificationReport = {
+  readonly mappingVersion?: number;
+  readonly asOf?: {
+    readonly earliest?: string | null;
+    readonly latest?: string | null;
+    readonly withoutProfileSync?: number;
+  };
+  readonly indexSecurities?: number;
+  readonly classifiedSecurities?: number;
+  readonly bySector?: Readonly<Record<string, number>>;
+  readonly unclassified?: readonly {
+    readonly symbol: string;
+    readonly name: string;
+    readonly reason: string;
+    readonly stored: string | null;
+  }[];
+  readonly byYear?: readonly {
+    readonly year: string;
+    readonly indexLines: number;
+    readonly indexMembers: number;
+    readonly classified: number;
+    readonly unclassified: number;
+    readonly groupMembers: number;
+    readonly groupPriced: number;
+    readonly constituentCoverage: number | null;
+    readonly classifiedShare: number | null;
+    readonly priceCoverage: number | null;
+    readonly minPriceCoverage: number | null;
+  }[];
+};
+
+/**
+ * Each retrospectively classified universe's classification audit: its source, mapping version and
+ * as-of, its members by sector, every unclassified index security, and its coverage by year.
+ */
+function renderClassificationMarkdown(
+  entries: readonly HistoricalUniverseReportEntry[],
+): string[] {
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const summary = entry.generation?.summary as
+      | {
+          classification?: ClassificationReport;
+          distinctSecurities?: number;
+          peakSimultaneousMembers?: number;
+          peakDate?: string | null;
+        }
+      | undefined;
+    const audit = summary?.classification;
+    if (!audit) continue;
+    const warnings = (entry.generation?.warnings ?? []) as {
+      code: string;
+      detail: string;
+    }[];
+    lines.push(
+      `### \`${entry.key}\` — classification and coverage`,
+      "",
+      `- Classification: current FMP company-profile sector, applied retrospectively; mapping version ${audit.mappingVersion ?? "—"}; profiles synchronized ${audit.asOf?.earliest ?? "—"} to ${audit.asOf?.latest ?? "—"} (${audit.asOf?.withoutProfileSync ?? 0} classified without a recorded profile synchronization).`,
+      `- Index securities ${audit.indexSecurities ?? "—"}, classified ${audit.classifiedSecurities ?? "—"}; this universe ${summary?.distinctSecurities ?? "—"} distinct, peak ${summary?.peakSimultaneousMembers ?? "—"} on ${summary?.peakDate ?? "—"}.`,
+      `- By sector: ${Object.entries(audit.bySector ?? {})
+        .map(([sector, count]) => `${sector} ${count}`)
+        .join(", ")}.`,
+      `- Unclassified (in no group): ${
+        (audit.unclassified ?? [])
+          .map(
+            (row) =>
+              `${row.symbol} (${row.name}; ${row.reason}${row.stored ? `: "${row.stored}"` : ""})`,
+          )
+          .join(", ") || "none"
+      }.`,
+      ...warnings.map((warning) => `- ${warning.code}: ${warning.detail}`),
+      "",
+      "| Year | Index lines | Members | Classified | Unclassified | Group | Group priced | Constituent coverage | Classified | Price coverage (min) |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      ...(audit.byYear ?? []).map(
+        (row) =>
+          `| ${row.year} | ${row.indexLines} | ${row.indexMembers} | ${row.classified} | ${row.unclassified} | ${row.groupMembers} | ${row.groupPriced} | ${percent(row.constituentCoverage)} | ${percent(row.classifiedShare)} | ${percent(row.priceCoverage)} (${percent(row.minPriceCoverage)}) |`,
+      ),
+      "",
+    );
+  }
+  return lines;
 }
 
 async function main(): Promise<number> {

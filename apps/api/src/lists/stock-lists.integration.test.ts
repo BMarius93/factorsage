@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import type {
+  HistoricalUniverseCatalogResponse,
   StockListDetailResponse,
   StockListItemResponse,
   StockListSummaryResponse,
@@ -325,8 +326,8 @@ describe("stock lists", () => {
         }[];
       };
       const entries = catalog.categories.flatMap((category) => category.universes);
-      // The 23 customer-facing universes, and never an internal research one.
-      expect(entries).toHaveLength(23);
+      // The 26 customer-facing universes, and never an internal research one.
+      expect(entries).toHaveLength(26);
       expect(catalog.categories.map((category) => category.key)).not.toContain("RESEARCH");
       expect(entries.some((entry) => entry.key === "sp500-top25-market-cap")).toBe(false);
       const sp500 = entries.find((entry) => entry.key === universeKey);
@@ -500,6 +501,238 @@ describe("stock lists", () => {
         .expect(409);
       await owner.patch(`/lists/${universeId}`).send({ name: "Renamed" }).expect(403);
       expect(await prisma.stockList.count({ where: { name: "My Top 100" } })).toBe(0);
+    });
+  });
+
+  /**
+   * A retrospectively classified universe (`docs/decisions/historical-universes-v1.md` §2.1): the
+   * S&P 500's own windows for the members whose current sector is in the group. Maintained like any
+   * universe, premium, and every surface carries its classification and disclosed coverage.
+   */
+  describe("a retrospectively classified universe", () => {
+    const universeKey = "sp500-defensive";
+    let universeId = "";
+    let generationId = "";
+
+    beforeAll(async () => {
+      await prisma.historicalUniverse.deleteMany({ where: { key: universeKey } });
+      await prisma.historicalUniverseGeneration.deleteMany({ where: { universeKey } });
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+      const list = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: universeKey,
+          name: "S&P 500 Defensive",
+          premium: true,
+          items: {
+            create: [
+              {
+                securityId: securityIds[0] as string,
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    {
+                      startDate: new Date("1996-01-02T00:00:00.000Z"),
+                      endDate: new Date("2004-06-30T00:00:00.000Z"),
+                    },
+                    { startDate: new Date("2012-01-03T00:00:00.000Z"), endDate: null },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      universeId = list.id;
+      const generation = await prisma.historicalUniverseGeneration.create({
+        data: {
+          universeKey,
+          methodologyVersion: 1,
+          engineVersion: 1,
+          status: "COMPLETED",
+          inputDigest: "test",
+          completedAt: new Date(),
+          summary: {
+            distinctSecurities: 1,
+            classification: {
+              source: "FMP_COMPANY_PROFILE_SECTOR",
+              timing: "RETROSPECTIVE",
+              mappingVersion: 1,
+              asOf: { earliest: "2026-10-23T18:23:00.000Z", latest: "2026-10-24T12:17:00.000Z" },
+              indexSecurities: 735,
+              classifiedSecurities: 733,
+              unclassified: [
+                { securityId: "x", symbol: "CELG", name: "Celgene Corporation", reason: "MISSING", stored: null },
+              ],
+              byYear: [
+                {
+                  year: "1996",
+                  indexLines: 500,
+                  indexMembers: 260,
+                  classified: 259,
+                  unclassified: 1,
+                  groupMembers: 60,
+                  groupPriced: 55,
+                  constituentCoverage: 0.52,
+                  classifiedShare: 0.9962,
+                  priceCoverage: 0.9167,
+                  minPriceCoverage: 0.9,
+                },
+              ],
+            },
+          },
+          validation: {
+            verdict: "VALIDATED",
+            reliableFrom: "2016-01-29",
+            publishFrom: "1996-01-02",
+            reasons: [],
+            warnings: [
+              { code: "RETROSPECTIVE_CLASSIFICATION", detail: "Each company's current sector." },
+              { code: "UNCLASSIFIED_MEMBERS", securities: 2, indexSecurities: 735, detail: "2 of 735." },
+              { code: "INCOMPLETE_PRICE_COVERAGE", coveredFrom: "1998-12-31", detail: "Before 1998." },
+              { code: "SURVIVORSHIP_BIAS", detail: "Before 2016-01-29." },
+            ],
+          },
+        },
+      });
+      generationId = generation.id;
+      await prisma.historicalUniverse.create({
+        data: {
+          key: universeKey,
+          status: "PUBLISHED",
+          methodologyVersion: 1,
+          latestGenerationId: generationId,
+          publishedGenerationId: generationId,
+          publishedAt: new Date(),
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.historicalUniverse.deleteMany({ where: { key: universeKey } });
+      await prisma.historicalUniverseGeneration.deleteMany({ where: { universeKey } });
+      await prisma.stockList.deleteMany({ where: { systemKey: universeKey } });
+    });
+
+    const classification = {
+      timing: "RETROSPECTIVE",
+      scheme: "CURRENT_SECTOR",
+      methodLabel: "Current sector applied retrospectively",
+      underlyingIndex: "S&P 500",
+      sectors: ["Consumer Staples", "Health Care", "Utilities"],
+      disclosure:
+        "Historical S&P 500 membership with retrospective sector classification. Sector " +
+        "assignments reflect currently available classifications and may differ from historical " +
+        "classifications.",
+    };
+
+    it("carries its classification and its disclosed coverage in the collection", async () => {
+      const collection = (await owner.get("/lists").expect(200))
+        .body as StockListSummaryResponse[];
+      const summary = collection.find((list) => list.id === universeId);
+      expect(summary?.canEdit).toBe(false);
+      expect(summary?.universe).toMatchObject({
+        indexKey: "SP500",
+        universeKey,
+        category: "ECONOMIC_SUPERSECTORS",
+        derived: true,
+        distinctSecurities: 1,
+        membershipFloor: "1996-01-02",
+        classification,
+        coverage: {
+          reliableFrom: "2016-01-29",
+          priceCoverageFrom: "1998-12-31",
+          indexSecurities: 735,
+          unclassifiedSecurities: 2,
+        },
+      });
+      // The collection reads neither the audit nor the year-by-year table.
+      expect(summary?.universe?.classification?.audit).toBeUndefined();
+      expect(summary?.universe?.coverage?.byYear).toBeUndefined();
+      expect(summary?.universe?.coverage?.warnings.map((warning) => warning.code)).toEqual([
+        "RETROSPECTIVE_CLASSIFICATION",
+        "UNCLASSIFIED_MEMBERS",
+        "INCOMPLETE_PRICE_COVERAGE",
+        "SURVIVORSHIP_BIAS",
+      ]);
+    });
+
+    it("shows the classification audit and the coverage by year on the detail, to Pro only", async () => {
+      const detail = (await owner.get(`/lists/${universeId}`).expect(200))
+        .body as StockListDetailResponse;
+      expect(detail.universe?.classification?.audit).toEqual({
+        source: "FMP_COMPANY_PROFILE_SECTOR",
+        mappingVersion: 1,
+        asOf: "2026-10-24T12:17:00.000Z",
+        indexSecurities: 735,
+        classifiedSecurities: 733,
+        unclassified: [{ symbol: "CELG", name: "Celgene Corporation", reason: "MISSING" }],
+      });
+      expect(detail.universe?.coverage?.byYear?.[0]).toMatchObject({
+        year: "1996",
+        classified: 259,
+        unclassified: 1,
+        priceCoverage: 0.9167,
+      });
+      // The windows are the index's own: exit and re-entry as they are.
+      expect(detail.items[0]?.buyWindowMode).toBe("CUSTOM");
+      expect(detail.items[0]?.buyWindows).toEqual([
+        { startDate: "1996-01-02", endDate: "2004-06-30" },
+        { startDate: "2012-01-03", endDate: null },
+      ]);
+      const guest = request.agent(app.getHttpServer());
+      await guest.get(`/lists/${universeId}`).expect(403);
+    });
+
+    it("is never duplicated or edited", async () => {
+      await owner
+        .post(`/lists/${universeId}/duplicate`)
+        .send({ name: "My Defensive" })
+        .expect(409);
+      await owner.patch(`/lists/${universeId}`).send({ name: "Renamed" }).expect(403);
+      expect(await prisma.stockList.count({ where: { name: "My Defensive" } })).toBe(0);
+    });
+
+    it("is listed in the catalog with its index, sectors, method, size and coverage", async () => {
+      const guest = request.agent(app.getHttpServer());
+      const catalog = (await guest.get("/lists/universes").expect(200))
+        .body as HistoricalUniverseCatalogResponse;
+      const category = catalog.categories.find((entry) => entry.key === "ECONOMIC_SUPERSECTORS");
+      expect(category?.label).toBe("Economic Supersectors");
+      expect(category?.universes.map((entry) => entry.key)).toEqual([
+        "sp500-cyclical",
+        "sp500-defensive",
+        "sp500-sensitive",
+      ]);
+      const defensive = category?.universes.find((entry) => entry.key === universeKey);
+      expect(defensive).toMatchObject({
+        name: "S&P 500 Defensive",
+        premium: true,
+        locked: true,
+        availability: "AVAILABLE",
+        listId: universeId,
+        availableFrom: "1996-01-02",
+        indexKey: "SP500",
+        underlyingIndex: "S&P 500",
+        includedSectors: ["Consumer Staples", "Health Care", "Utilities"],
+        classification,
+        historicalConstituents: 1,
+        coverage: { reliableFrom: "2016-01-29", unclassifiedSecurities: 2 },
+      });
+      expect(defensive?.description).not.toMatch(/morningstar/i);
+      // Unpublished, the other two say so; the strict sector universes stay unavailable.
+      expect(
+        category?.universes.find((entry) => entry.key === "sp500-cyclical"),
+      ).toMatchObject({ availability: "UNAVAILABLE", coverage: null, historicalConstituents: null });
+      const sectors = catalog.categories.find((entry) => entry.key === "SP500_SECTORS");
+      expect(sectors?.universes).toHaveLength(11);
+      for (const sector of sectors?.universes ?? []) {
+        expect(sector).toMatchObject({ availability: "UNAVAILABLE", classification: null });
+      }
+      const sp500 = catalog.categories
+        .flatMap((entry) => entry.universes)
+        .find((entry) => entry.key === "sp500-historical-pit");
+      expect(sp500).toMatchObject({ classification: null, includedSectors: [], coverage: null });
     });
   });
 

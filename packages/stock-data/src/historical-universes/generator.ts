@@ -1,13 +1,21 @@
 import { createHash } from "node:crypto";
+import {
+  classifyStockSector,
+  STOCK_SECTOR_CLASSIFICATION_VERSION,
+  type StockSectorClassification,
+} from "@intrinsic/contracts";
 import { Prisma, type PrismaClient } from "@intrinsic/database";
 import {
   HISTORICAL_UNIVERSE_FLOOR,
+  marketIndexName,
   requireHistoricalUniverse,
   rootIndexOf,
   unavailableRequirements,
+  type GicsSector,
   type HistoricalUniverseDefinition,
   type LocalDate,
   type MarketIndexKey,
+  type UniverseMethod,
   type UniverseRankingMetric,
 } from "@intrinsic/domain";
 import {
@@ -42,6 +50,7 @@ import {
   type MetricUnavailability,
 } from "./metrics.js";
 import {
+  validateClassifiedGeneration,
   validateGeneration,
   type GenerationValidation,
   type ReconstitutionDiagnostic,
@@ -95,6 +104,72 @@ export type GenerationSummary = {
   readonly peakDate: LocalDate | null;
   readonly selectedTotal: number;
   readonly durationMs: number;
+  /** A retrospectively classified universe's classification audit; absent for every other. */
+  readonly classification?: ClassificationAudit;
+};
+
+type ClassificationMethod = Extract<UniverseMethod, { kind: "CLASSIFICATION" }>;
+
+/**
+ * How a classified universe's members were classified, persisted with its generation so a published
+ * List can always say which classification it was built from.
+ */
+export type ClassificationAudit = {
+  /** `Security.sector`: the company's current sector from the provider's company profile. */
+  readonly source: "FMP_COMPANY_PROFILE_SECTOR";
+  readonly timing: "RETROSPECTIVE";
+  /** `STOCK_SECTOR_CLASSIFICATION_VERSION` the generation ran. */
+  readonly mappingVersion: number;
+  /**
+   * When the classifications were read from the provider: the oldest and newest profile
+   * synchronization among the classified securities, and how many have no recorded one (their
+   * sector came from the catalog synchronization).
+   */
+  readonly asOf: {
+    readonly earliest: string | null;
+    readonly latest: string | null;
+    readonly withoutProfileSync: number;
+  };
+  readonly sectors: readonly GicsSector[];
+  /** The index's catalog securities over its whole history, and how they classified. */
+  readonly indexSecurities: number;
+  readonly classifiedSecurities: number;
+  readonly unclassifiedSecurities: number;
+  /** The universe's distinct securities, by sector. */
+  readonly bySector: Readonly<Partial<Record<GicsSector, number>>>;
+  /** Every unclassified index security: none is guessed, every one is reported. */
+  readonly unclassified: readonly {
+    readonly securityId: string;
+    readonly symbol: string;
+    readonly name: string;
+    readonly reason: "MISSING" | "UNSUPPORTED";
+    readonly stored: string | null;
+  }[];
+  /** Each member's classification, as the generation applied it. */
+  readonly members: readonly {
+    readonly securityId: string;
+    readonly symbol: string;
+    readonly fmpSector: string;
+    readonly gicsSector: GicsSector;
+  }[];
+  /** Per calendar year, at its last checkpoint, and the year's lowest group price coverage. */
+  readonly byYear: readonly ClassificationYear[];
+};
+
+export type ClassificationYear = {
+  readonly year: string;
+  readonly checkpoints: number;
+  readonly indexLines: number;
+  readonly indexMembers: number;
+  readonly classified: number;
+  readonly unclassified: number;
+  readonly groupMembers: number;
+  readonly groupPriced: number;
+  /** Index members over index lines: lines with no catalog security have no sector at all. */
+  readonly constituentCoverage: number | null;
+  readonly classifiedShare: number | null;
+  readonly priceCoverage: number | null;
+  readonly minPriceCoverage: number | null;
 };
 
 export type GeneratorLogger = {
@@ -146,19 +221,27 @@ function sortDefinitions(
 
 export async function generateHistoricalUniverses(input: {
   readonly prisma: PrismaClient;
+  /** Catalog universes, by key. */
   readonly keys: readonly string[];
+  /**
+   * Definitions generated as they are, beside the keys': every methodology is declarative, so a
+   * definition outside the catalog (a test's, an operator's experiment) runs the same code.
+   */
+  readonly definitions?: readonly HistoricalUniverseDefinition[];
   readonly concurrency?: number;
   readonly logger?: GeneratorLogger;
   readonly now?: () => Date;
 }): Promise<GenerationOutcome[]> {
   const { prisma } = input;
   const logger = input.logger ?? { info: () => undefined };
-  const definitions = sortDefinitions(
-    input.keys.map(requireHistoricalUniverse),
-  );
+  const definitions = sortDefinitions([
+    ...input.keys.map(requireHistoricalUniverse),
+    ...(input.definitions ?? []),
+  ]);
   const outcomes: GenerationOutcome[] = [];
 
   const ranked: HistoricalUniverseDefinition[] = [];
+  const classified = new Map<MarketIndexKey, HistoricalUniverseDefinition[]>();
   for (const definition of definitions) {
     const missing = unavailableRequirements(definition);
     if (missing.length > 0) {
@@ -181,10 +264,28 @@ export async function generateHistoricalUniverses(input: {
       );
       continue;
     }
+    if (definition.method.kind === "CLASSIFICATION") {
+      const indexKey = definition.method.indexKey;
+      classified.set(indexKey, [
+        ...(classified.get(indexKey) ?? []),
+        definition,
+      ]);
+      continue;
+    }
     if (definition.method.kind !== "RANK") {
       continue;
     }
     ranked.push(definition);
+  }
+  for (const [indexKey, group] of classified) {
+    outcomes.push(
+      ...(await generateClassificationGroup({
+        prisma,
+        indexKey,
+        definitions: group,
+        logger,
+      })),
+    );
   }
 
   const byRoot = new Map<MarketIndexKey, HistoricalUniverseDefinition[]>();
@@ -632,29 +733,11 @@ async function generateIndexUniverse(input: {
   }
   const checkpoints = reconstitutionDates({
     sessions,
-    reconstitution: {
-      frequency: "MONTHLY",
-      months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    },
+    reconstitution: MONTH_ENDS,
     from: floor,
     to: latestSession,
   });
-  const priced = new Map<LocalDate, Set<string>>();
-  if (checkpoints.length > 0 && securities.length > 0) {
-    const rows = await prisma.dailyPrice.findMany({
-      where: {
-        securityId: { in: securities },
-        date: { in: checkpoints.map((checkpoint) => day(checkpoint.date)) },
-      },
-      select: { securityId: true, date: true },
-    });
-    for (const row of rows) {
-      const date = row.date.toISOString().slice(0, 10) as LocalDate;
-      const set = priced.get(date) ?? new Set<string>();
-      set.add(row.securityId);
-      priced.set(date, set);
-    }
-  }
+  const priced = await pricedOn(prisma, securities, checkpoints);
   const digest = createHash("sha256").update(
     JSON.stringify({
       key: definition.key,
@@ -738,6 +821,363 @@ async function generateIndexUniverse(input: {
     validation,
     summary,
   };
+}
+
+/** Which securities have a stored close on each checkpoint. */
+async function pricedOn(
+  prisma: PrismaClient,
+  securities: readonly string[],
+  checkpoints: readonly ReconstitutionDate[],
+): Promise<Map<LocalDate, Set<string>>> {
+  const priced = new Map<LocalDate, Set<string>>();
+  if (checkpoints.length === 0 || securities.length === 0) return priced;
+  const rows = await prisma.dailyPrice.findMany({
+    where: {
+      securityId: { in: [...securities] },
+      date: { in: checkpoints.map((checkpoint) => day(checkpoint.date)) },
+    },
+    select: { securityId: true, date: true },
+  });
+  for (const row of rows) {
+    const date = row.date.toISOString().slice(0, 10) as LocalDate;
+    const set = priced.get(date) ?? new Set<string>();
+    set.add(row.securityId);
+    priced.set(date, set);
+  }
+  return priced;
+}
+
+const MONTH_ENDS = {
+  frequency: "MONTHLY",
+  months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+} as const;
+
+/**
+ * Retrospectively classified universes of one index (`docs/decisions/historical-universes-v1.md`
+ * §2.1): each is the index's own point-in-time membership — every window, entry, exit and re-entry
+ * exactly as the index's List projects it — restricted to the securities whose **current** sector,
+ * read once through the canonical mapping (`classifyStockSector`), is in its group. A security is in
+ * at most one group of a partition, never outside its index windows, and an unclassified one is in
+ * none and reported. Nothing is fetched: the sector is `Security.sector` as stored.
+ *
+ * Diagnostics are the index's on each month's last session (data coverage as for the index itself)
+ * with the classification and the group's own price coverage beside them.
+ */
+async function generateClassificationGroup(input: {
+  readonly prisma: PrismaClient;
+  readonly indexKey: MarketIndexKey;
+  readonly definitions: readonly HistoricalUniverseDefinition[];
+  readonly logger: GeneratorLogger;
+}): Promise<GenerationOutcome[]> {
+  const { prisma, indexKey, logger } = input;
+  const startedAt = Date.now();
+  const floor = HISTORICAL_UNIVERSE_FLOOR;
+  const parent = await loadParentIndexMembership(prisma, indexKey, floor);
+  const securities = [...parent.ranges.keys()].sort();
+  const sessions = await observedSessions(prisma, securities, floor);
+  const latestSession = sessions[sessions.length - 1] ?? null;
+  if (latestSession === null) {
+    const outcomes: GenerationOutcome[] = [];
+    for (const definition of input.definitions) {
+      const reasons = [
+        {
+          code: "NO_PARENT_DATA",
+          detail: `no stored prices for any ${indexKey} member`,
+        },
+      ];
+      await recordDraft(prisma, definition, reasons);
+      outcomes.push({ key: definition.key, outcome: "NO_DATA", reasons });
+    }
+    return outcomes;
+  }
+  const checkpoints = reconstitutionDates({
+    sessions,
+    reconstitution: MONTH_ENDS,
+    from: floor,
+    to: latestSession,
+  });
+  const priced = await pricedOn(prisma, securities, checkpoints);
+  const rows = await prisma.security.findMany({
+    where: { id: { in: securities } },
+    select: {
+      id: true,
+      symbol: true,
+      name: true,
+      sector: true,
+      datasetStates: {
+        where: { dataset: "SECURITY_PROFILE" },
+        select: { lastSuccessfulSyncAt: true },
+      },
+    },
+    orderBy: { id: "asc" },
+  });
+  const classification = new Map<
+    string,
+    {
+      readonly symbol: string;
+      readonly name: string;
+      readonly stored: string | null;
+      readonly result: StockSectorClassification;
+      readonly syncedAt: Date | null;
+    }
+  >(
+    rows.map((row) => [
+      row.id,
+      {
+        symbol: row.symbol,
+        name: row.name,
+        stored: row.sector,
+        result: classifyStockSector(row.sector),
+        syncedAt: row.datasetStates[0]?.lastSuccessfulSyncAt ?? null,
+      },
+    ]),
+  );
+  const sectorOf = (securityId: string): GicsSector | null => {
+    const entry = classification.get(securityId);
+    // A compile-time check that the contract's codes are the domain's sectors.
+    const sector: GicsSector | null =
+      entry?.result.status === "CLASSIFIED" ? entry.result.gicsSector : null;
+    return sector;
+  };
+  const classifiedIds = securities.filter((id) => sectorOf(id) !== null);
+  const syncTimes = classifiedIds
+    .map((id) => classification.get(id)?.syncedAt ?? null)
+    .filter((value): value is Date => value !== null)
+    .map((value) => value.toISOString())
+    .sort();
+  const unclassified = securities
+    .filter((id) => sectorOf(id) === null)
+    .map((securityId) => {
+      const entry = classification.get(securityId);
+      const result = entry?.result;
+      return {
+        securityId,
+        symbol: entry?.symbol ?? securityId,
+        name: entry?.name ?? "",
+        reason:
+          result?.status === "UNCLASSIFIED"
+            ? result.reason
+            : ("MISSING" as const),
+        stored: entry?.stored?.trim() ? entry.stored.trim() : null,
+      };
+    })
+    .sort((left, right) => (left.symbol < right.symbol ? -1 : 1));
+  // Every security's classification enters every digest: each generation's audit reports the
+  // index's unclassified members, so any change of classification is a new generation of each.
+  const assignments = securities.map((id) => [
+    id,
+    classification.get(id)?.stored ?? null,
+    sectorOf(id),
+  ]);
+  const indexDiagnostics = checkpoints.map((checkpoint) => {
+    const members = membersOn(parent.ranges, checkpoint.date);
+    return {
+      checkpoint,
+      members,
+      lines: parent.linesOn(checkpoint.date),
+      withPrice: members.filter((id) => priced.get(checkpoint.date)?.has(id))
+        .length,
+      classified: members.filter((id) => sectorOf(id) !== null).length,
+    };
+  });
+  logger.info({
+    event: "historical-universe.classification.loaded",
+    indexKey,
+    securities: securities.length,
+    classified: classifiedIds.length,
+    unclassified: unclassified.map((entry) => entry.symbol),
+    checkpoints: checkpoints.length,
+  });
+
+  const outcomes: GenerationOutcome[] = [];
+  for (const definition of input.definitions) {
+    const method = definition.method as ClassificationMethod;
+    const universeStartedAt = Date.now();
+    const sectors = new Set<GicsSector>(method.sectors);
+    const inGroup = (id: string) => {
+      const sector = sectorOf(id);
+      return sector !== null && sectors.has(sector);
+    };
+    const digest = createHash("sha256").update(
+      JSON.stringify({
+        key: definition.key,
+        method,
+        methodologyVersion: definition.methodologyVersion,
+        engine: HISTORICAL_UNIVERSE_ENGINE_VERSION,
+        parent: parent.sourceDigest,
+        mappingVersion: STOCK_SECTOR_CLASSIFICATION_VERSION,
+        assignments,
+      }),
+    );
+    const diagnostics: ReconstitutionDiagnostic[] = indexDiagnostics.map(
+      (entry) => {
+        const group = entry.members.filter(inGroup);
+        const groupPriced = group.filter((id) =>
+          priced.get(entry.checkpoint.date)?.has(id),
+        ).length;
+        digest.update(
+          JSON.stringify([
+            entry.checkpoint.date,
+            entry.lines,
+            entry.members,
+            entry.withPrice,
+          ]),
+        );
+        return {
+          date: entry.checkpoint.date,
+          effectiveDate: entry.checkpoint.effectiveDate,
+          parentLines: entry.lines,
+          parentMembers: entry.members.length,
+          withData: entry.withPrice,
+          withValue: entry.withPrice,
+          // Every group member is held: a classification has no ranking to fall short of.
+          expected: 1,
+          selected: 1,
+          unavailable:
+            entry.members.length > entry.withPrice
+              ? { NO_PRICE_ON_DATE: entry.members.length - entry.withPrice }
+              : {},
+          classification: {
+            classified: entry.classified,
+            unclassified: entry.members.length - entry.classified,
+            groupMembers: group.length,
+            groupPriced,
+          },
+        };
+      },
+    );
+    // The index's own windows, untouched, for the group's securities only.
+    const periods = new Map(
+      [...parent.ranges.entries()]
+        .filter(([securityId]) => inGroup(securityId))
+        .map(([securityId, ranges]) => [securityId, [...ranges]]),
+    );
+    const validation = validateClassifiedGeneration({
+      diagnostics,
+      latestSession,
+      floor,
+      securities: securities.length,
+      classifiedSecurities: classifiedIds.length,
+      indexName: marketIndexName(indexKey),
+    });
+    const measured = measurePeriods(periods);
+    const bySector: Partial<Record<GicsSector, number>> = {};
+    const members = [...periods.keys()].sort().map((securityId) => {
+      const entry = classification.get(securityId);
+      const gicsSector = sectorOf(securityId) as GicsSector;
+      bySector[gicsSector] = (bySector[gicsSector] ?? 0) + 1;
+      return {
+        securityId,
+        symbol: entry?.symbol ?? securityId,
+        fmpSector:
+          entry?.result.status === "CLASSIFIED" ? entry.result.fmpSector : "",
+        gicsSector,
+      };
+    });
+    const summary: GenerationSummary = {
+      reconstitutions: checkpoints.length,
+      firstReconstitution: checkpoints[0]?.date ?? null,
+      lastReconstitution: checkpoints[checkpoints.length - 1]?.date ?? null,
+      distinctSecurities: measured.distinctSecurities,
+      peakSimultaneousMembers: measured.peakSimultaneousMembers,
+      peakDate: measured.peakDate,
+      selectedTotal: 0,
+      durationMs: Date.now() - universeStartedAt,
+      classification: {
+        source: "FMP_COMPANY_PROFILE_SECTOR",
+        timing: "RETROSPECTIVE",
+        mappingVersion: STOCK_SECTOR_CLASSIFICATION_VERSION,
+        asOf: {
+          earliest: syncTimes[0] ?? null,
+          latest: syncTimes[syncTimes.length - 1] ?? null,
+          withoutProfileSync: classifiedIds.length - syncTimes.length,
+        },
+        sectors: method.sectors,
+        indexSecurities: securities.length,
+        classifiedSecurities: classifiedIds.length,
+        unclassifiedSecurities: unclassified.length,
+        bySector,
+        unclassified,
+        members,
+        byYear: classificationByYear(diagnostics),
+      },
+    };
+    const stored = await storeGeneration(prisma, {
+      definition,
+      inputDigest: digest.digest("hex"),
+      outputDigest: createHash("sha256")
+        .update(JSON.stringify([...periods.entries()]))
+        .digest("hex"),
+      ranks: [],
+      selections: [],
+      periods,
+      diagnostics,
+      validation,
+      summary,
+    });
+    logger.info({
+      event: "historical-universe.generated",
+      key: definition.key,
+      outcome: stored.outcome,
+      verdict: validation.verdict,
+      reliableFrom: validation.reliableFrom,
+      distinctSecurities: summary.distinctSecurities,
+      peakSimultaneousMembers: summary.peakSimultaneousMembers,
+      durationMs: Date.now() - startedAt,
+    });
+    outcomes.push({
+      key: definition.key,
+      outcome: stored.outcome,
+      generationId: stored.generationId,
+      validation,
+      summary,
+    });
+  }
+  return outcomes;
+}
+
+const share = (part: number, whole: number) =>
+  whole > 0 ? Math.round((part / whole) * 10_000) / 10_000 : null;
+
+/** A classified universe's coverage per calendar year: the year's last checkpoint, and its lowest. */
+export function classificationByYear(
+  diagnostics: readonly ReconstitutionDiagnostic[],
+): ClassificationYear[] {
+  const years = new Map<string, ReconstitutionDiagnostic[]>();
+  for (const diagnostic of [...diagnostics].sort((left, right) =>
+    left.date < right.date ? -1 : 1,
+  )) {
+    const year = diagnostic.date.slice(0, 4);
+    years.set(year, [...(years.get(year) ?? []), diagnostic]);
+  }
+  return [...years.entries()].map(([year, entries]) => {
+    const last = entries[entries.length - 1] as ReconstitutionDiagnostic;
+    const group = last.classification;
+    const coverages = entries
+      .map((entry) =>
+        entry.classification
+          ? share(
+              entry.classification.groupPriced,
+              entry.classification.groupMembers,
+            )
+          : null,
+      )
+      .filter((value): value is number => value !== null);
+    return {
+      year,
+      checkpoints: entries.length,
+      indexLines: last.parentLines,
+      indexMembers: last.parentMembers,
+      classified: group?.classified ?? 0,
+      unclassified: group?.unclassified ?? 0,
+      groupMembers: group?.groupMembers ?? 0,
+      groupPriced: group?.groupPriced ?? 0,
+      constituentCoverage: share(last.parentMembers, last.parentLines),
+      classifiedShare: share(group?.classified ?? 0, last.parentMembers),
+      priceCoverage: share(group?.groupPriced ?? 0, group?.groupMembers ?? 0),
+      minPriceCoverage: coverages.length > 0 ? Math.min(...coverages) : null,
+    };
+  });
 }
 
 async function loadLatestReliableFrom(

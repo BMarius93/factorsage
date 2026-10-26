@@ -1,5 +1,9 @@
 import type { StockSectorAssignmentResponse } from "./stock-sector-etfs.js";
-import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
+import type {
+  BuyWindowMode,
+  BuyWindowRangeResponse,
+  UniverseClassificationResponse,
+} from "./stock-lists.js";
 import { alternativeDataScope } from "./alternative-data.js";
 import {
   collectAlternativeDataMetrics,
@@ -231,6 +235,11 @@ export type BacktestRunConfigurationResponse = {
   fullPositionPercent: number;
   benchmark: BacktestBenchmarkSnapshotResponse;
   methodology: BacktestMethodologyResponse;
+  /**
+   * Present only when the run's List was a retrospectively classified universe, named by the
+   * snapshot's frozen `universeKey`: the classification its results rest on, and its disclosure.
+   */
+  stockListClassification?: UniverseClassificationResponse;
 };
 
 /**

@@ -26,6 +26,12 @@ import type { MetricUnavailability } from "./metrics.js";
  */
 
 export const MIN_DATA_COVERAGE = 0.9;
+/**
+ * A retrospectively classified universe's one publication gate of its own: the share of the index's
+ * catalog securities the provider classifies. Below it a sector grouping would leave out too many
+ * members silently, so it stays `DRAFT`.
+ */
+export const MIN_CLASSIFIED_SHARE = 0.95;
 export const MIN_METRIC_AVAILABILITY = 0.75;
 export const MIN_RELIABLE_YEARS = 5;
 export const MAX_STALENESS_DAYS = 400;
@@ -50,6 +56,19 @@ export type ReconstitutionDiagnostic = {
    * the date. A ranking of an unreliable selection is not reliable however complete its own data is.
    */
   readonly parentReliable?: boolean;
+  /** For a retrospectively classified universe: how the index's members on the date classified. */
+  readonly classification?: ClassificationDiagnostic;
+};
+
+export type ClassificationDiagnostic = {
+  /** Index members (catalog securities) the provider classifies. */
+  readonly classified: number;
+  /** Index members with no sector, or one outside the eleven. */
+  readonly unclassified: number;
+  /** Index members whose sector is in the universe's group. */
+  readonly groupMembers: number;
+  /** Group members with a stored close on the date. */
+  readonly groupPriced: number;
 };
 
 export type ValidationReason =
@@ -64,7 +83,34 @@ export type ValidationReason =
       readonly code: "STALE";
       readonly lastReconstitution: LocalDate;
       readonly latestSession: LocalDate;
-    };
+    }
+  | {
+      readonly code: "CLASSIFICATION_INCOMPLETE";
+      readonly classifiedShare: number;
+      readonly minimum: number;
+    }
+  | { readonly code: "EMPTY_CLASSIFICATION_GROUP"; readonly date: LocalDate };
+
+/**
+ * What a published universe discloses rather than gates on. A retrospectively classified universe
+ * carries all four; no other universe carries any.
+ */
+export type ValidationWarning =
+  | { readonly code: "RETROSPECTIVE_CLASSIFICATION"; readonly detail: string }
+  | {
+      readonly code: "UNCLASSIFIED_MEMBERS";
+      /** Unclassified index securities, of `indexSecurities` over the index's history. */
+      readonly securities: number;
+      readonly indexSecurities: number;
+      readonly detail: string;
+    }
+  | {
+      readonly code: "INCOMPLETE_PRICE_COVERAGE";
+      /** The first checkpoint from which every one has a price for 90 % of the group; null: none. */
+      readonly coveredFrom: LocalDate | null;
+      readonly detail: string;
+    }
+  | { readonly code: "SURVIVORSHIP_BIAS"; readonly detail: string };
 
 export type GenerationValidation = {
   readonly verdict: "VALIDATED" | "DRAFT";
@@ -79,6 +125,8 @@ export type GenerationValidation = {
     readonly minReliableYears: number;
     readonly maxStalenessDays: number;
   };
+  /** Disclosures that do not gate publication. */
+  readonly warnings?: readonly ValidationWarning[];
   /** Per calendar year: the lowest data coverage and metric availability, and failed dates. */
   readonly byYear: readonly {
     readonly year: string;
@@ -244,4 +292,122 @@ export function validateGeneration(input: {
     criteria,
     byYear: summary,
   };
+}
+
+/**
+ * A retrospectively classified universe's validation (`docs/decisions/historical-universes-v1.md`
+ * §2.1). Its membership is its index's, so the index's data coverage is measured exactly as for the
+ * index itself and `reliableFrom` reports it; but the owner decided the universe is published from
+ * the floor with that coverage **disclosed** rather than gated, as the S&P 500's own List is. What
+ * gates it is its classification: enough of the index's securities classified, and a group that is
+ * never empty. `warnings` carries the disclosures every surface shows.
+ */
+export function validateClassifiedGeneration(input: {
+  readonly diagnostics: readonly ReconstitutionDiagnostic[];
+  readonly latestSession: LocalDate | null;
+  readonly floor: LocalDate;
+  readonly securities: number;
+  readonly classifiedSecurities: number;
+  readonly indexName: string;
+}): GenerationValidation {
+  const base = validateGeneration({
+    diagnostics: input.diagnostics,
+    latestSession: input.latestSession,
+  });
+  const reasons: ValidationReason[] = base.reasons.filter(
+    (reason) => reason.code === "STALE" || reason.code === "NO_RECONSTITUTIONS",
+  );
+  const classifiedShare =
+    input.securities > 0 ? input.classifiedSecurities / input.securities : 0;
+  if (classifiedShare < MIN_CLASSIFIED_SHARE) {
+    reasons.push({
+      code: "CLASSIFICATION_INCOMPLETE",
+      classifiedShare: Math.round(classifiedShare * 10_000) / 10_000,
+      minimum: MIN_CLASSIFIED_SHARE,
+    });
+  }
+  const empty = input.diagnostics.find(
+    (diagnostic) => (diagnostic.classification?.groupMembers ?? 0) === 0,
+  );
+  if (empty) {
+    reasons.push({ code: "EMPTY_CLASSIFICATION_GROUP", date: empty.date });
+  }
+  const unclassified = input.securities - input.classifiedSecurities;
+  const coveredFrom = groupPriceCoveredFrom(input.diagnostics);
+  const firstCheckpoint = input.diagnostics.reduce<LocalDate | null>(
+    (first, diagnostic) =>
+      first === null || diagnostic.date < first ? diagnostic.date : first,
+    null,
+  );
+  const warnings: ValidationWarning[] = [
+    {
+      code: "RETROSPECTIVE_CLASSIFICATION",
+      detail:
+        "Each company's current sector is applied to every date; historical reclassifications " +
+        "are not reconstructed, so a company appears in the group its sector puts it in today.",
+    },
+    {
+      code: "UNCLASSIFIED_MEMBERS",
+      securities: unclassified,
+      indexSecurities: input.securities,
+      detail:
+        unclassified === 0
+          ? `Every ${input.indexName} member with stored data has a sector.`
+          : `${unclassified} of ${input.securities} ${input.indexName} members with stored data ` +
+            "have no provider sector; they are in no group and are listed in the report.",
+    },
+    {
+      code: "INCOMPLETE_PRICE_COVERAGE",
+      coveredFrom,
+      detail:
+        coveredFrom === null
+          ? "No period has a stored price for 90 % of the group's members."
+          : coveredFrom === firstCheckpoint
+            ? "At least 90 % of the group's members have a stored price on every checkpoint."
+            : `Before ${coveredFrom}, under 90 % of the group's members on some checkpoint have a ` +
+              "stored price; a member without one cannot be bought on that date.",
+    },
+    {
+      code: "SURVIVORSHIP_BIAS",
+      detail:
+        base.reliableFrom === null
+          ? `The ${input.indexName}'s historical members are covered too sparsely to measure.`
+          : `Before ${base.reliableFrom}, fewer than 90 % of the ${input.indexName}'s ` +
+            "constituents on some dates have a stored price: members that left the index " +
+            "without price history at the provider are missing, so early results lean toward " +
+            "survivors.",
+    },
+  ];
+  return {
+    verdict: reasons.length === 0 ? "VALIDATED" : "DRAFT",
+    reliableFrom: base.reliableFrom,
+    publishFrom: reasons.length === 0 ? input.floor : null,
+    reasons,
+    warnings,
+    criteria: base.criteria,
+    byYear: base.byYear,
+  };
+}
+
+/** The first checkpoint from which every checkpoint prices at least 90 % of the group. */
+function groupPriceCoveredFrom(
+  diagnostics: readonly ReconstitutionDiagnostic[],
+): LocalDate | null {
+  const ordered = [...diagnostics].sort((left, right) =>
+    left.date < right.date ? -1 : left.date > right.date ? 1 : 0,
+  );
+  let from: LocalDate | null = null;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const diagnostic = ordered[index] as ReconstitutionDiagnostic;
+    const group = diagnostic.classification;
+    if (
+      !group ||
+      group.groupMembers === 0 ||
+      group.groupPriced / group.groupMembers < MIN_DATA_COVERAGE
+    ) {
+      break;
+    }
+    from = diagnostic.date;
+  }
+  return from;
 }

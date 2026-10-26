@@ -147,6 +147,54 @@ describe("NewBacktestForm with the point-in-time index universe", () => {
     expect(screen.queryByTestId("backtest-list-over-limit")).toBeNull();
   });
 
+  it("carries a retrospectively classified universe's disclosure into the hint", async () => {
+    const pit = universeList(506);
+    await choose({
+      ...pit,
+      id: "sp500-cyclical",
+      systemKey: "sp500-cyclical",
+      name: "S&P 500 Cyclical",
+      universe: {
+        ...pit.universe!,
+        universeKey: "sp500-cyclical",
+        category: "ECONOMIC_SUPERSECTORS",
+        derived: true,
+        classification: {
+          timing: "RETROSPECTIVE",
+          scheme: "CURRENT_SECTOR",
+          methodLabel: "Current sector applied retrospectively",
+          underlyingIndex: "S&P 500",
+          sectors: [
+            "Financials",
+            "Consumer Discretionary",
+            "Materials",
+            "Real Estate",
+          ],
+          disclosure:
+            "Historical S&P 500 membership with retrospective sector classification. Sector assignments reflect currently available classifications and may differ from historical classifications.",
+        },
+        coverage: {
+          reliableFrom: "2016-01-29",
+          priceCoverageFrom: null,
+          indexSecurities: 735,
+          unclassifiedSecurities: 2,
+          warnings: [],
+        },
+      },
+    });
+    const hint = text(
+      await screen.findByTestId("backtest-universe-classification"),
+    );
+    expect(hint).toContain("retrospective sector classification");
+    expect(hint).toContain("lean toward survivors");
+  });
+
+  it("says nothing about classification for a point-in-time universe", async () => {
+    await choose(universeList(506));
+    await screen.findByTestId("backtest-universe-summary");
+    expect(screen.queryByTestId("backtest-universe-classification")).toBeNull();
+  });
+
   it("tells a plan without the universe that it is not included, before anything is submitted (PR-1)", async () => {
     plan = "STARTER";
     await choose(universeList(506));

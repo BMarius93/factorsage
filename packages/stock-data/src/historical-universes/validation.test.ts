@@ -2,6 +2,7 @@ import type { LocalDate } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
   reconstitutionPasses,
+  validateClassifiedGeneration,
   validateGeneration,
   type ReconstitutionDiagnostic,
 } from "./validation.js";
@@ -111,6 +112,92 @@ describe("historical universe validation", () => {
     ).toMatchObject({
       verdict: "DRAFT",
       reasons: [{ code: "NO_RECONSTITUTIONS" }],
+    });
+  });
+});
+
+describe("retrospectively classified universe validation", () => {
+  const classified = (year: number) =>
+    diagnostic(`${year}-12-30`, {
+      // The index's coverage falls short before 2016, and so does the group's before 2010.
+      withData: year < 2016 ? 300 : 490,
+      classification: {
+        classified: 498,
+        unclassified: 2,
+        groupMembers: 150,
+        groupPriced: year < 2010 ? 120 : 145,
+      },
+    });
+  const diagnostics = Array.from({ length: 30 }, (_, index) =>
+    classified(1996 + index),
+  );
+
+  it("publishes from the floor and discloses the coverage it does not gate on", () => {
+    const result = validateClassifiedGeneration({
+      diagnostics,
+      latestSession: "2026-01-15" as LocalDate,
+      floor: "1996-01-02" as LocalDate,
+      securities: 735,
+      classifiedSecurities: 733,
+      indexName: "S&P 500",
+    });
+    expect(result).toMatchObject({
+      verdict: "VALIDATED",
+      reasons: [],
+      // Measured exactly as for the index, but not the start of the List.
+      reliableFrom: "2016-12-30",
+      publishFrom: "1996-01-02",
+    });
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ code: "RETROSPECTIVE_CLASSIFICATION" }),
+      expect.objectContaining({ code: "UNCLASSIFIED_MEMBERS", securities: 2 }),
+      expect.objectContaining({
+        code: "INCOMPLETE_PRICE_COVERAGE",
+        coveredFrom: "2010-12-30",
+      }),
+      expect.objectContaining({ code: "SURVIVORSHIP_BIAS" }),
+    ]);
+  });
+
+  it("holds back a classification too incomplete or a group that empties", () => {
+    const sparse = validateClassifiedGeneration({
+      diagnostics,
+      latestSession: "2026-01-15" as LocalDate,
+      floor: "1996-01-02" as LocalDate,
+      securities: 735,
+      classifiedSecurities: 690,
+      indexName: "S&P 500",
+    });
+    expect(sparse.verdict).toBe("DRAFT");
+    expect(sparse.publishFrom).toBeNull();
+    expect(sparse.reasons).toEqual([
+      {
+        code: "CLASSIFICATION_INCOMPLETE",
+        classifiedShare: 0.9388,
+        minimum: 0.95,
+      },
+    ]);
+    const empty = validateClassifiedGeneration({
+      diagnostics: [
+        ...diagnostics.slice(0, 5),
+        diagnostic("2001-06-29", {
+          classification: {
+            classified: 500,
+            unclassified: 0,
+            groupMembers: 0,
+            groupPriced: 0,
+          },
+        }),
+      ],
+      latestSession: "2001-07-15" as LocalDate,
+      floor: "1996-01-02" as LocalDate,
+      securities: 735,
+      classifiedSecurities: 735,
+      indexName: "S&P 500",
+    });
+    expect(empty.reasons).toContainEqual({
+      code: "EMPTY_CLASSIFICATION_GROUP",
+      date: "2001-06-29",
     });
   });
 });

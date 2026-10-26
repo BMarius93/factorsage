@@ -11,12 +11,12 @@ test.describe("pro historical universes", () => {
   }) => {
     await page.goto("/lists");
     const universes = page.getByTestId("historical-universes");
-    await expect(universes.getByTestId("historical-universe")).toHaveCount(23);
+    await expect(universes.getByTestId("historical-universe")).toHaveCount(26);
     await expect(
       universes.locator(
         '[data-testid="historical-universe"][data-locked="false"]',
       ),
-    ).toHaveCount(23);
+    ).toHaveCount(26);
     await expect(
       universes.getByTestId("universe-pro-badge").first(),
     ).toHaveText("Pro");

@@ -4969,6 +4969,12 @@ components:
           listId,
           availableFrom,
           unavailableReason,
+          indexKey,
+          underlyingIndex,
+          includedSectors,
+          classification,
+          historicalConstituents,
+          coverage,
         ]
       properties:
         key: { type: string, example: sp500-top100-market-cap }
@@ -4993,6 +4999,140 @@ components:
           oneOf:
             - { type: string }
             - { type: "null" }
+        indexKey: { type: string, example: SP500, description: The index it is drawn from. }
+        underlyingIndex: { type: string, example: S&P 500 }
+        includedSectors:
+          type: array
+          description: The sectors it holds, by name; empty for a universe that does not group by sector.
+          items: { type: string, example: Health Care }
+        classification:
+          description: How its members are classified; null for a universe that does not classify them.
+          oneOf:
+            - { $ref: "#/components/schemas/UniverseClassification" }
+            - { type: "null" }
+        historicalConstituents:
+          description: Distinct securities its List holds; null until published.
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        coverage:
+          description: The coverage a classified universe discloses; null for any other, or before publication.
+          oneOf:
+            - { $ref: "#/components/schemas/UniverseCoverage" }
+            - { type: "null" }
+
+    UniverseClassification:
+      type: object
+      description: >-
+        A retrospectively classified universe's classification (`historical-universes-v1.md` §2.1):
+        each company's current provider sector, normalized to GICS sector names and applied to every
+        date. Its index membership is point-in-time; its classification is not.
+      required: [timing, scheme, methodLabel, underlyingIndex, sectors, disclosure]
+      properties:
+        timing: { type: string, enum: [RETROSPECTIVE] }
+        scheme: { type: string, enum: [CURRENT_SECTOR] }
+        methodLabel: { type: string, example: Current sector applied retrospectively }
+        underlyingIndex: { type: string, example: S&P 500 }
+        sectors:
+          type: array
+          items: { type: string, example: Utilities }
+        disclosure: { type: string }
+        audit:
+          type: object
+          description: The classification the published List was generated from; on a List's detail only.
+          required: [source, mappingVersion, asOf, indexSecurities, classifiedSecurities, unclassified]
+          properties:
+            source: { type: string, example: FMP_COMPANY_PROFILE_SECTOR }
+            mappingVersion: { type: integer, minimum: 0 }
+            asOf:
+              oneOf:
+                - { type: string, format: date-time }
+                - { type: "null" }
+            indexSecurities: { type: integer, minimum: 0 }
+            classifiedSecurities: { type: integer, minimum: 0 }
+            unclassified:
+              type: array
+              items:
+                type: object
+                required: [symbol, name, reason]
+                properties:
+                  symbol: { type: string }
+                  name: { type: string }
+                  reason: { type: string, enum: [MISSING, UNSUPPORTED] }
+
+    UniverseCoverage:
+      type: object
+      description: >-
+        The data coverage a classified universe's List discloses rather than gates on. `byYear` is on
+        the List's detail only.
+      required: [reliableFrom, priceCoverageFrom, indexSecurities, unclassifiedSecurities, warnings]
+      properties:
+        reliableFrom:
+          description: >-
+            The first date from which at least 90 % of the index's constituents have a stored price;
+            before it, results lean toward survivors.
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        priceCoverageFrom:
+          description: The first date from which at least 90 % of the universe's own members have a price.
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        indexSecurities:
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        unclassifiedSecurities:
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [code, detail]
+            properties:
+              code:
+                type: string
+                enum:
+                  [
+                    RETROSPECTIVE_CLASSIFICATION,
+                    UNCLASSIFIED_MEMBERS,
+                    INCOMPLETE_PRICE_COVERAGE,
+                    SURVIVORSHIP_BIAS,
+                  ]
+              detail: { type: string }
+        byYear:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                year,
+                indexLines,
+                indexMembers,
+                classified,
+                unclassified,
+                groupMembers,
+                groupPriced,
+                constituentCoverage,
+                classifiedShare,
+                priceCoverage,
+                minPriceCoverage,
+              ]
+            properties:
+              year: { type: string, example: "1996" }
+              indexLines: { type: integer, minimum: 0 }
+              indexMembers: { type: integer, minimum: 0 }
+              classified: { type: integer, minimum: 0 }
+              unclassified: { type: integer, minimum: 0 }
+              groupMembers: { type: integer, minimum: 0 }
+              groupPriced: { type: integer, minimum: 0 }
+              constituentCoverage: { oneOf: [{ type: number }, { type: "null" }] }
+              classifiedShare: { oneOf: [{ type: number }, { type: "null" }] }
+              priceCoverage: { oneOf: [{ type: number }, { type: "null" }] }
+              minPriceCoverage: { oneOf: [{ type: number }, { type: "null" }] }
 
     StockListUniverse:
       type: object
@@ -5029,6 +5169,7 @@ components:
             [
               MARKET_INDICES,
               SP500_SECTORS,
+              ECONOMIC_SUPERSECTORS,
               MARKET_CAPITALIZATION,
               INVESTMENT_STYLES,
               DOW_STRATEGIES,
@@ -5036,7 +5177,7 @@ components:
             ]
         derived:
           type: boolean
-          description: False for an index's own membership; true for a ranking drawn from one.
+          description: False for an index's own membership; true for a universe drawn from one.
         distinctSecurities:
           type: integer
           minimum: 0
@@ -5052,6 +5193,12 @@ components:
           oneOf:
             - { type: string, format: date-time }
             - { type: "null" }
+        classification:
+          description: Present only on a universe that groups its index's members by current sector.
+          allOf: [{ $ref: "#/components/schemas/UniverseClassification" }]
+        coverage:
+          description: Present only alongside `classification`, once the universe is published.
+          allOf: [{ $ref: "#/components/schemas/UniverseCoverage" }]
 
     StockListItem:
       type: object
@@ -6087,6 +6234,11 @@ components:
           { type: number, description: "Derived: 100 / maximumPositions." }
         benchmark: { $ref: "#/components/schemas/BacktestBenchmarkSnapshot" }
         methodology: { $ref: "#/components/schemas/BacktestMethodology" }
+        stockListClassification:
+          description: >-
+            Present only when the run's List was a retrospectively classified universe, named by the
+            snapshot's frozen universe key: the classification its results rest on.
+          allOf: [{ $ref: "#/components/schemas/UniverseClassification" }]
 
     NullableNumber:
       oneOf: [{ type: number }, { type: "null" }]
