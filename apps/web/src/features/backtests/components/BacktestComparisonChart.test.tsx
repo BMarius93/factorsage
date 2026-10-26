@@ -42,46 +42,42 @@ const chartApplyOptions = vi.fn();
 // what this component feeds into it — including the options the shared bounded time scale writes,
 // which is where the horizontal domain and the interaction lock actually live.
 vi.mock("lightweight-charts", () => ({
-  createChart: vi.fn(
-    (_container: unknown, options: Record<string, unknown>) => {
-      chartApplyOptions.mockClear();
-      const chart = {
-        options,
-        addSeries: vi.fn(
-          (_definition: unknown, seriesOpts: Record<string, unknown>) => {
-            const index = series.length;
-            const stub: SeriesStub = {
-              setData: vi.fn((rows: unknown[]) => {
-                writes.push(`setData:${index}`);
-                scalePoints = Math.max(scalePoints, rows.length);
-              }),
-              applyOptions: vi.fn(),
-              createPriceLine: vi.fn(),
-            };
-            series.push(stub);
-            seriesOptions.push(seriesOpts);
-            return stub;
-          },
+  createChart: vi.fn((_container: unknown, options: Record<string, unknown>) => {
+    chartApplyOptions.mockClear();
+    const chart = {
+      options,
+      addSeries: vi.fn((_definition: unknown, seriesOpts: Record<string, unknown>) => {
+        const index = series.length;
+        const stub: SeriesStub = {
+          setData: vi.fn((rows: unknown[]) => {
+            writes.push(`setData:${index}`);
+            scalePoints = Math.max(scalePoints, rows.length);
+          }),
+          applyOptions: vi.fn(),
+          createPriceLine: vi.fn(),
+        };
+        series.push(stub);
+        seriesOptions.push(seriesOpts);
+        return stub;
+      }),
+      timeScale: vi.fn(() => ({
+        fitContent,
+        setVisibleRange,
+        applyOptions: timeScaleApplyOptions,
+        getVisibleLogicalRange: vi.fn(() =>
+          scalePoints === 0 ? null : { from: 0, to: scalePoints },
         ),
-        timeScale: vi.fn(() => ({
-          fitContent,
-          setVisibleRange,
-          applyOptions: timeScaleApplyOptions,
-          getVisibleLogicalRange: vi.fn(() =>
-            scalePoints === 0 ? null : { from: 0, to: scalePoints },
-          ),
-          setVisibleLogicalRange: vi.fn(),
-          subscribeVisibleLogicalRangeChange: vi.fn(),
-          unsubscribeVisibleLogicalRangeChange: vi.fn(),
-        })),
-        applyOptions: chartApplyOptions,
-        subscribeCrosshairMove: vi.fn(),
-        unsubscribeCrosshairMove: vi.fn(),
-        remove: vi.fn(),
-      };
-      return chart;
-    },
-  ),
+        setVisibleLogicalRange: vi.fn(),
+        subscribeVisibleLogicalRangeChange: vi.fn(),
+        unsubscribeVisibleLogicalRangeChange: vi.fn(),
+      })),
+      applyOptions: chartApplyOptions,
+      subscribeCrosshairMove: vi.fn(),
+      unsubscribeCrosshairMove: vi.fn(),
+      remove: vi.fn(),
+    };
+    return chart;
+  }),
   LineSeries: "LineSeries",
   LineStyle: { Dashed: 2 },
 }));
@@ -134,7 +130,9 @@ const CAPITAL = { initialCapital: 100_000, monthlyContribution: 500 } as const;
 
 function chartProps(
   points: BacktestCurvePointResponse[],
-  overrides: Partial<React.ComponentProps<typeof BacktestComparisonChart>> = {},
+  overrides: Partial<
+    React.ComponentProps<typeof BacktestComparisonChart>
+  > = {},
 ) {
   return {
     points,
@@ -149,7 +147,9 @@ function chartProps(
 
 function renderChart(
   points: BacktestCurvePointResponse[],
-  overrides: Partial<React.ComponentProps<typeof BacktestComparisonChart>> = {},
+  overrides: Partial<
+    React.ComponentProps<typeof BacktestComparisonChart>
+  > = {},
 ) {
   return render(<BacktestComparisonChart {...chartProps(points, overrides)} />);
 }
@@ -380,10 +380,7 @@ describe("BacktestComparisonChart", () => {
       horzTouchDrag: true,
       vertTouchDrag: false,
     });
-    expect(completed.handleScale).toMatchObject({
-      mouseWheel: true,
-      pinch: true,
-    });
+    expect(completed.handleScale).toMatchObject({ mouseWheel: true, pinch: true });
     expect(completed.timeScale).toMatchObject({
       fixLeftEdge: true,
       fixRightEdge: true,
@@ -433,10 +430,7 @@ describe("BacktestComparisonChart", () => {
     const widened = provider(() => ({
       priceRange: { minValue: 90_000, maxValue: 400_000 },
     }));
-    expect(widened?.priceRange).toEqual({
-      minValue: 90_000,
-      maxValue: 400_000,
-    });
+    expect(widened?.priceRange).toEqual({ minValue: 90_000, maxValue: 400_000 });
 
     // ...and the next year landing back inside it does not shrink or recentre the axis.
     const held = provider(() => ({
@@ -461,10 +455,7 @@ describe("BacktestComparisonChart", () => {
     // A requeued attempt re-simulates from the first day, so its curve is shorter than what the
     // dead attempt drew. The floor the dead attempt widened must not survive into it.
     const { rerender } = renderChart(
-      [
-        pointOf("1996-01-02"),
-        pointOf("2010-01-04", { strategyValue: 900_000 }),
-      ],
+      [pointOf("1996-01-02"), pointOf("2010-01-04", { strategyValue: 900_000 })],
       { populating: true },
     );
     const provider = seriesOptions[STRATEGY]?.autoscaleInfoProvider as (

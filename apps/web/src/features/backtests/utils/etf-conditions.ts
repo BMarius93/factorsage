@@ -123,7 +123,8 @@ export function etfConditionsGuidance(
       tone: "info",
       title: "ETF conditions were evaluated",
       lines,
-      note: "Every ETF this strategy reads had data for this run, so where its rules did not match, that is the strategy's own result. An ETF rule is decided on the fund's own completed sessions. Before a fund's first session, and while one of its indicators is still warming up, the rule cannot be evaluated and a signal that needs it does not fire.",
+      note:
+        "Every ETF this strategy reads had data for this run, so where its rules did not match, that is the strategy's own result. An ETF rule is decided on the fund's own completed sessions. Before a fund's first session, and while one of its indicators is still warming up, the rule cannot be evaluated and a signal that needs it does not fire.",
     };
   }
   const title =

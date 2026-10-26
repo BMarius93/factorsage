@@ -41,9 +41,7 @@ describe("etfConditionsGuidance", () => {
   });
 
   it("stays information on a zero-trade run whose ETF data was all there", () => {
-    expect(
-      etfConditionsGuidance([READY_XLK], { totalTrades: 0 }),
-    ).toMatchObject({
+    expect(etfConditionsGuidance([READY_XLK], { totalTrades: 0 })).toMatchObject({
       tone: "info",
       title: "ETF conditions were evaluated",
     });
@@ -152,12 +150,7 @@ describe("etfConditionsGuidance with Stock's Sector rules", () => {
       totalTrades: 3,
       stockSectors: [
         TECH("AAPL"),
-        {
-          symbol: "JPM",
-          sector: "Financial Services",
-          code: "ETF_XLF",
-          ticker: "XLF",
-        },
+        { symbol: "JPM", sector: "Financial Services", code: "ETF_XLF", ticker: "XLF" },
         TECH("MSFT"),
       ],
     })!;
@@ -196,20 +189,12 @@ describe("etfConditionsGuidance with Stock's Sector rules", () => {
 
   it("names an unreadable sector fund and an unclassified stock in one note", () => {
     const guidance = etfConditionsGuidance(
-      [
-        { code: "ETF_XLF", ticker: "XLF", status: "NOT_BOOTSTRAPPED" },
-        READY_XLK,
-      ],
+      [{ code: "ETF_XLF", ticker: "XLF", status: "NOT_BOOTSTRAPPED" }, READY_XLK],
       {
         totalTrades: 2,
         stockSectors: [
           TECH("AAPL"),
-          {
-            symbol: "JPM",
-            sector: "Financial Services",
-            code: "ETF_XLF",
-            ticker: "XLF",
-          },
+          { symbol: "JPM", sector: "Financial Services", code: "ETF_XLF", ticker: "XLF" },
           { symbol: "NOSEC", sector: null, code: null, ticker: null },
         ],
       },
@@ -224,9 +209,7 @@ describe("etfConditionsGuidance with Stock's Sector rules", () => {
   it("speaks for a sector-only run even when no stock resolved to a fund", () => {
     const guidance = etfConditionsGuidance([], {
       totalTrades: 0,
-      stockSectors: [
-        { symbol: "NOSEC", sector: null, code: null, ticker: null },
-      ],
+      stockSectors: [{ symbol: "NOSEC", sector: null, code: null, ticker: null }],
     })!;
     expect(guidance.tone).toBe("warning");
     expect(guidance.lines).toEqual([
