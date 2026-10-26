@@ -18,7 +18,11 @@ Read `ai/README.md` before substantial work.
    the reconstitution date, take effect the next session and are clipped to the parent membership —
    and reach a List only through `pnpm data:historical-universes -- publish` after validating, from
    their reliable period. A universe needing data no source provides (the sectors' historical GICS
-   classification) stays `BLOCKED`; today's classification is never applied to the past. The S&P
+   classification) stays `BLOCKED`; today's classification is never applied to the past — with one
+   owner-approved, disclosed exception: the three economic supersectors (S&P 500 Cyclical,
+   Defensive, Sensitive; §2.1 of the historical-universes decision) group the S&P 500's
+   point-in-time membership by each company's **current** sector, labelled "retrospective
+   classification" on every surface, with unclassified companies reported, never guessed. The S&P
    500's List is projected by `pnpm data:index-universe -- project`; every other universe's by
    `publish`. Point-in-time membership a user supplies is a different thing and is supported — see
    invariant 3.

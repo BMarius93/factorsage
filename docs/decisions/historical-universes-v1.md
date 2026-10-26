@@ -1,6 +1,6 @@
 # Historical PIT built-in universes, v1
 
-- **Status:** Accepted, 2026-10-24.
+- **Status:** Accepted, 2026-10-24; §2.1 (economic supersectors) accepted 2026-10-26.
 - **Extends:** `sp500-historical-pit-v1.md` (the S&P 500 reconstruction, its List and its Pro
   allowance), `protected-stock-tier-v1.md`, `stock-cache-tiers-v1.md`, `entitlements-v2.md` §6.
 - **Measured results:** `docs/audits/historical-universes-2026-10-24.md`.
@@ -10,9 +10,9 @@
 The S&P 500 point-in-time universe proved the model: a built-in SYSTEM List whose members carry
 `CUSTOM` buy windows reconstructed from the provider's index history, so a backtest buys a security
 only while it was a member and never force-sells it when it leaves. This decision extends that model
-to a catalog of 23 premium universes — two more indices and twenty universes derived from one — and
-to an internal set of research rankings, without changing what a List, a buy window or a backtest
-is.
+to a catalog of 26 premium universes — two more indices and twenty-three universes derived from
+one — and to an internal set of research rankings, without changing what a List, a buy window or a
+backtest is.
 
 What is new is where the windows come from. An index universe's windows are its reconstructed
 membership. A derived universe's windows are a **generation**: a deterministic, versioned
@@ -24,13 +24,14 @@ does reaches the provider, and opening the Lists page or selecting a universe re
 Every definition lives in `packages/domain/src/historical-universes.ts`; its key is the List's
 immutable `systemKey`.
 
-| Category          | Universes                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Market Indices    | S&P 500 — Historical PIT (existing), Nasdaq-100 — Historical PIT, Dow Jones 30 — Historical PIT                                                               |
-| S&P 500 Sectors   | Technology, Financials, Health Care, Energy, Industrials, Utilities, Communication Services, Consumer Discretionary, Consumer Staples, Materials, Real Estate |
-| Market Cap        | S&P 500 Top 100 and Top 250 by market capitalization (monthly)                                                                                                |
-| Investment Styles | S&P 500 Growth and Value (FactorSage methodology, quarterly), High Dividend (semi-annual), Top 50 Momentum 12-1 and Top 100 by Liquidity (monthly)            |
-| Dow Strategies    | Dogs of the Dow (annual), Small Dogs of the Dow (annual)                                                                                                      |
+| Category              | Universes                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Market Indices        | S&P 500 — Historical PIT (existing), Nasdaq-100 — Historical PIT, Dow Jones 30 — Historical PIT                                                               |
+| S&P 500 Sectors       | Technology, Financials, Health Care, Energy, Industrials, Utilities, Communication Services, Consumer Discretionary, Consumer Staples, Materials, Real Estate |
+| Economic Supersectors | S&P 500 Cyclical, S&P 500 Defensive, S&P 500 Sensitive (retrospective classification, §2.1)                                                                   |
+| Market Cap            | S&P 500 Top 100 and Top 250 by market capitalization (monthly)                                                                                                |
+| Investment Styles     | S&P 500 Growth and Value (FactorSage methodology, quarterly), High Dividend (semi-annual), Top 50 Momentum 12-1 and Top 100 by Liquidity (monthly)            |
+| Dow Strategies        | Dogs of the Dow (annual), Small Dogs of the Dow (annual)                                                                                                      |
 
 **Internal research candidates** (`audience: INTERNAL`, category `RESEARCH`) are generated and
 validated like the catalog but are never published and never listed: market cap top 25/50 and
@@ -53,6 +54,66 @@ provider reports today's sector only, in its own taxonomy rather than GICS, and 
 (Real Estate left Financials in 2016; Communication Services replaced Telecommunication Services in
 2018). Today's sector applied to thirty years is not point-in-time, so the sectors are defined,
 listed as "Historical data unavailable", and never generated (`UNAVAILABLE_UNIVERSE_DATA`).
+
+### 2.1 Economic supersectors: retrospective classification
+
+**Owner decision, 2026-10-26.** Three premium universes group the S&P 500's historical members by
+economic supersector, with the sector classification **explicitly accepted as retrospective**: each
+company's current sector applied to every date. This is the one place the catalog does not hold to
+"today's sector is never applied to the past", and it is made visible rather than implied. The
+eleven strict sector universes above stay BLOCKED; nothing here relaxes them.
+
+| Universe          | Sectors                                                             | Description (as published)                                                                                                                                                                                                                |
+| ----------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S&P 500 Cyclical  | Financials, Consumer Discretionary, Materials, Real Estate          | Historical S&P 500 companies in economically cyclical sectors, including financials, consumer discretionary, materials, and real estate. Designed for researching strategies sensitive to economic expansion and contraction.             |
+| S&P 500 Defensive | Consumer Staples, Health Care, Utilities                            | Historical S&P 500 companies in defensive sectors, including consumer staples, health care, and utilities. Designed for researching businesses associated with relatively stable demand across economic cycles.                           |
+| S&P 500 Sensitive | Information Technology, Communication Services, Industrials, Energy | Historical S&P 500 companies in economically sensitive sectors, including technology, communication services, industrials, and energy. Designed for researching businesses exposed to changes in economic activity and market conditions. |
+
+The grouping is FactorSage's (`ECONOMIC_SUPERSECTORS`): every GICS sector belongs to exactly one
+supersector. It is not a licensed index and is not described as any vendor's supersector product.
+
+- **Membership is point-in-time.** A supersector universe is the S&P 500's own projected membership
+  — every window, entry, exit and re-entry exactly as the S&P 500's List holds them, from the
+  1996-01-02 floor — restricted to the securities whose classified sector is in the group. A security
+  is in at most one supersector and never outside its index windows. Canonical identities and the
+  corporate-action rules are the index's, untouched.
+- **Classification is retrospective.** The sector is `Security.sector`, the provider's current
+  company-profile sector, read through the canonical mapping (`resolveStockSectorEtf`, the same
+  reading a `Stock's Sector` condition uses) and normalized to GICS names by `classifyStockSector`
+  (`packages/contracts/src/stock-sector-classification.ts`, versioned by
+  `STOCK_SECTOR_CLASSIFICATION_VERSION`): Technology → Information Technology, Financial Services →
+  Financials, Healthcare → Health Care, Consumer Cyclical → Consumer Discretionary, Consumer Defensive
+  → Consumer Staples, Basic Materials → Materials; the other five are spelled alike. Historical
+  reclassifications (Real Estate out of Financials in 2016, Communication Services in 2018) are not
+  reconstructed.
+- **Unknown is reported, never guessed.** A security with no provider sector, or one outside the
+  eleven, is `UNCLASSIFIED`: in no supersector, listed by name in every generation's audit, counted
+  per year. No sector is taken from another company, a ticker, an industry or a name.
+- **What a generation persists.** Beside the periods: the classification source
+  (`FMP_COMPANY_PROFILE_SECTOR`), the mapping version, the as-of (the oldest and newest profile
+  synchronization among the classified securities), each member's FMP and GICS sector, every
+  unclassified index security, and per year the index lines, members with data, classified and
+  unclassified members, group members and priced group members. Every security's classification
+  enters the input digest, so a provider reclassification regenerates the three, and an unchanged
+  dataset writes nothing. A frozen backtest snapshot is never touched by a regeneration.
+- **Publication.** Validation measures the index's data coverage exactly as for the index
+  (`reliableFrom`), but the owner decided the universes are published from the **1996 floor** with
+  that coverage **disclosed** rather than gated, as the S&P 500's own List is. What gates them is the
+  classification: at least 95 % of the index's catalog securities classified, and a supersector that
+  is never empty on a checkpoint. Four warnings travel with every generation and every surface:
+  `RETROSPECTIVE_CLASSIFICATION`, `UNCLASSIFIED_MEMBERS`, `INCOMPLETE_PRICE_COVERAGE` (the first
+  checkpoint from which 90 % of the group's members are priced) and `SURVIVORSHIP_BIAS`.
+- **Disclosure.** The Lists page, the List (its description and detail), the backtest form and the
+  backtest run show "Historical S&P 500 membership with retrospective sector classification. Sector
+  assignments reflect currently available classifications and may differ from historical
+  classifications.", a "Retrospective classification" badge, the underlying index, the included
+  sectors and "Classification method: Current sector applied retrospectively". The catalog entry and
+  `StockListUniverse` carry `classification` and `coverage`; a run's configuration carries
+  `stockListClassification`, resolved from the snapshot's frozen `universeKey`.
+- **Everything else is a derived universe's rule** (§6): premium for Pro, enforced by the API,
+  measured by peak simultaneous members, never edited, never duplicated (`409`), snapshot with root
+  `SP500` and its `universeKey`, no Redis designation beyond the S&P 500's protected tier, no price
+  row copied.
 
 ## 3. Index memberships
 
@@ -218,7 +279,8 @@ Lifecycle: `DRAFT` → `VALIDATED` → `PUBLISHED`, or `BLOCKED` when a required
 `pnpm data:historical-universes -- publish <key>` projects a validated generation into the List
 **from its `publishFrom`** (the first effective date of the reliable period), refuses an internal
 universe, a draft, a blocked one and one the engine's ceilings could not run, and records the
-published generation. The S&P 500's own List keeps its 1996 floor (§3.1). A published universe
+published generation. The S&P 500's own List keeps its 1996 floor (§3.1), and so do the
+retrospectively classified supersectors (§2.1). A published universe
 whose newer generation does not validate stays published on its last good generation.
 
 **Product rules** — one `MaintainedUniverse` (`maintainedUniverseForList`) decides them for every
@@ -262,6 +324,9 @@ RUN_INDEX_UNIVERSE_INGESTION=1 scripts/cloud/fmp-index-universe.sh dividends --i
 pnpm data:historical-universes -- generate --all
 pnpm data:historical-universes -- report --out artifacts/historical-universes/report.json
 pnpm data:historical-universes -- publish nasdaq100-historical-pit sp500-top100-market-cap
+# The supersectors read only stored prices, memberships and Security.sector
+pnpm data:historical-universes -- generate --keys sp500-cyclical,sp500-defensive,sp500-sensitive
+pnpm data:historical-universes -- publish sp500-cyclical sp500-defensive sp500-sensitive
 ```
 
 Every step is idempotent and resumable: sync and resolve keep their checkpoints in PostgreSQL,
@@ -296,4 +361,10 @@ constituents, and whether the index names may be used, before a commercial launc
 - Effective dates carry the S&P 500 reconstruction's known one-session uncertainty for unconfirmed
   log dates.
 - Fundamental universes depend on the derived state's coverage, which starts later than prices.
-- Sectors are blocked until a point-in-time GICS source exists.
+- Sectors are blocked until a point-in-time GICS source exists. The supersectors use today's
+  sector for every date by owner decision (§2.1): a company that changed sector appears in the group
+  its sector puts it in today, over its whole history.
+- Before about 2016 fewer than 90 % of the S&P 500's constituents resolve to a company with stored
+  data; such a constituent has neither a price nor a sector, so the supersectors' early years hold
+  survivors disproportionately. The yearly table in the audit and on each List's detail says how
+  many.

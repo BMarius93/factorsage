@@ -50,7 +50,8 @@ Some built-in lists are not edited by anybody: the **historical universes**
 (`docs/decisions/historical-universes-v1.md`) — the index memberships (**S&P 500 — Historical PIT**,
 `sp500-historical-pit`, `docs/decisions/sp500-historical-pit-v1.md`; Nasdaq-100; Dow Jones 30) and
 the universes derived from them (Top 100/250 by market cap, Growth, Value, High Dividend, Top 50
-Momentum, Top 100 by Liquidity, Dogs and Small Dogs of the Dow). Each is a projection — CUSTOM buy
+Momentum, Top 100 by Liquidity, Dogs and Small Dogs of the Dow, and the economic supersectors S&P
+500 Cyclical, Defensive and Sensitive). Each is a projection — CUSTOM buy
 windows exactly as long as its memberships — rewritten whole by its writer (`index-universe project`
 for the S&P 500, `historical-universes publish` for the rest). `canEdit` is `false` for every caller,
 administrators included, and every List write answers `403` `SYSTEM_CONTENT_READ_ONLY` (the
@@ -65,6 +66,14 @@ would outlive the plan that unlocks it.
 which no plan changes, e.g. the eleven sectors) and `locked` ("Requires Pro"). The Lists page shows
 the universes from it, grouped, with a lock and a "Pro" label where the plan lacks premium content;
 internal research universes are never listed.
+
+The **economic supersectors** are the S&P 500's own point-in-time windows for the companies whose
+**current** sector (`classifyStockSector`, the canonical FMP sector mapping) is in the group: their
+membership is point-in-time, their classification is retrospective by owner decision (§2.1 of the
+decision). Their catalog entry, `universe.classification` and `universe.coverage`, and a run's
+`configuration.stockListClassification` carry the method, sectors, coverage and the disclosure; the
+Lists page, the List detail, the backtest form and the run view show it with a "Retrospective
+classification" badge. They are not the eleven strict sector universes, which stay unavailable.
 
 ### Duplicating a list
 
