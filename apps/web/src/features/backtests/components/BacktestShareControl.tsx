@@ -43,8 +43,10 @@ export function BacktestShareControl({ runId }: BacktestShareControlProps) {
   const [pending, setPending] = useState<
     "enable" | "revoke" | "publish" | null
   >(null);
-  // The owner's choice before the link exists; once it does, the link's own setting is the truth.
+  // The owner's choice before the link exists; once it does, the link's own setting is the truth —
+  // shown at once while the change is saved, and put back if saving it fails.
   const [publishChoice, setPublishChoice] = useState(false);
+  const [savingChoice, setSavingChoice] = useState<boolean | null>(null);
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -55,7 +57,7 @@ export function BacktestShareControl({ runId }: BacktestShareControlProps) {
   const shared = share?.shared === true && share.url !== null;
   const definitions = share?.definitions;
   const publishDescriptions = shared
-    ? share?.publishDescriptions === true
+    ? (savingChoice ?? share?.publishDescriptions === true)
     : publishChoice;
   // The choice only matters for the owner's own content. A link from before definitions were
   // recorded has none to show, and turning the option on is how its owner records them.
@@ -98,12 +100,14 @@ export function BacktestShareControl({ runId }: BacktestShareControlProps) {
       return;
     }
     setPending("publish");
+    setSavingChoice(next);
     setFailure(null);
     try {
       await enable({ publishDescriptions: next });
     } catch (caught) {
       setFailure(failureMessage(caught));
     } finally {
+      setSavingChoice(null);
       setPending(null);
     }
   };
