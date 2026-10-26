@@ -30,3 +30,4 @@ export * from "./backtest/diagnostics.js";
 export * from "./backtest/comparison.js";
 export * from "./backtest/simulation.js";
 export * from "./backtest/simulate.js";
+export * from "./definitions/index.js";
