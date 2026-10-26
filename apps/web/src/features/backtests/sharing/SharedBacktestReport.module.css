@@ -6,3 +6,65 @@
   font-size: var(--text-secondary);
   line-height: var(--line-height-body);
 }
+
+/* The run's strategy and list, side by side where both fit, stacked on a phone. */
+.definitions {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 880px) {
+  .definitions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+}
+
+.definition {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.definitionTitle {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+}
+
+/* Where it comes from: a quiet label, never louder than the description it introduces. */
+.provenance {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}
+
+.definitionShort {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}
+
+.definitionDetailed {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+.definitionDetailed p,
+.withheld {
+  margin: 0;
+}
+
+.withheld {
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}

@@ -200,4 +200,143 @@ describe("SharedBacktestReport", () => {
     expect(cta.getAttribute("href")).toBe("/backtests/new");
     expect(cta.getAttribute("data-audience")).toBe("member");
   });
+
+  describe("the strategy and the list", () => {
+    const PUBLISHED_STRATEGY = {
+      origin: "built_in",
+      builtInName: "Value & Trend",
+      description: {
+        status: "published",
+        short:
+          "Buys when Margin of Safety · Balanced is above 5% and Price is above SMA 200D. Sells in 1 level and closes the position when Price is below SMA 200D.",
+        detailed:
+          "BUY: buys 100% of a full position when Margin of Safety · Balanced is above 5% and Price is above SMA 200D.\nFINAL EXIT: closes the whole remaining position when Price is below SMA 200D.",
+      },
+    } as const;
+    const PUBLISHED_LIST = {
+      origin: "built_in",
+      builtInName: "S&P 500 — Historical PIT",
+      description: {
+        status: "published",
+        short:
+          "Uses historical S&P 500 membership to determine eligible securities at each point in time.",
+        detailed: "Uses the point-in-time membership of the S&P 500.",
+      },
+    } as const;
+
+    it("names an official built-in, labels it, and shows its generated description", () => {
+      render(
+        <SharedBacktestReport
+          report={testSharedReport({
+            definitions: { strategy: PUBLISHED_STRATEGY, list: PUBLISHED_LIST },
+          })}
+        />,
+      );
+      const strategy = screen.getByTestId("shared-backtest-strategy");
+      expect(within(strategy).getByRole("heading").textContent).toBe(
+        "Strategy — Value & Trend",
+      );
+      expect(
+        screen.getByTestId("shared-backtest-strategy-provenance").textContent,
+      ).toBe("Built-in · Official FactorSage Strategy");
+      expect(
+        screen.getByTestId("shared-backtest-strategy-short").textContent,
+      ).toContain("Margin of Safety · Balanced is above 5%");
+      // The detailed description keeps its lines: one paragraph per level.
+      expect(
+        screen
+          .getByTestId("shared-backtest-strategy-detailed")
+          .querySelectorAll("p"),
+      ).toHaveLength(2);
+      expect(
+        within(screen.getByTestId("shared-backtest-list")).getByRole("heading")
+          .textContent,
+      ).toBe("List — S&P 500 — Historical PIT");
+      expect(
+        screen.getByTestId("shared-backtest-list-provenance").textContent,
+      ).toBe("Built-in · Official FactorSage List");
+      // Once the rules are described, the intro no longer calls them private.
+      expect(
+        screen.getByTestId("shared-backtest-intro").textContent,
+      ).not.toContain("strategy's rules");
+    });
+
+    it("labels custom, derived and unrecorded content without naming it, and says what is withheld", () => {
+      render(
+        <SharedBacktestReport
+          report={testSharedReport({
+            definitions: {
+              strategy: {
+                origin: "derived",
+                builtInName: "Value & Trend",
+                description: { status: "withheld", reason: "owner" },
+              },
+              list: {
+                origin: "custom",
+                description: { status: "withheld", reason: "owner" },
+              },
+            },
+          })}
+        />,
+      );
+      expect(
+        within(screen.getByTestId("shared-backtest-strategy")).getByRole(
+          "heading",
+        ).textContent,
+      ).toBe("Strategy");
+      expect(
+        screen.getByTestId("shared-backtest-strategy-provenance").textContent,
+      ).toBe("Derived from Value & Trend");
+      expect(
+        screen.getByTestId("shared-backtest-strategy-withheld").textContent,
+      ).toBe("The owner keeps this strategy's rules private.");
+      expect(
+        screen.getByTestId("shared-backtest-list-provenance").textContent,
+      ).toBe("Custom");
+      expect(
+        screen.getByTestId("shared-backtest-list-withheld").textContent,
+      ).toBe("The owner keeps this list's composition private.");
+      expect(screen.queryByTestId("shared-backtest-strategy-short")).toBeNull();
+      expect(screen.getByTestId("shared-backtest-intro").textContent).toContain(
+        "rules, the stock list and its securities, and the individual trades are private",
+      );
+    });
+
+    it("never describes a premium built-in's rules, and does not guess an unrecorded origin", () => {
+      render(
+        <SharedBacktestReport
+          report={testSharedReport({
+            definitions: {
+              strategy: {
+                origin: "built_in",
+                builtInName: "Premium Quality",
+                description: { status: "withheld", reason: "premium" },
+              },
+              list: {
+                origin: "unknown",
+                description: { status: "withheld", reason: "owner" },
+              },
+            },
+          })}
+        />,
+      );
+      expect(
+        screen.getByTestId("shared-backtest-strategy-withheld").textContent,
+      ).toBe(
+        "The rules of this premium FactorSage strategy are not published.",
+      );
+      expect(
+        screen.getByTestId("shared-backtest-list-provenance").textContent,
+      ).toBe("Origin not recorded");
+      expect(document.body.textContent).not.toMatch(/upgrade|unlock/i);
+    });
+
+    it("is absent from a report shared before definitions were recorded", () => {
+      render(<SharedBacktestReport report={testSharedReport()} />);
+      expect(screen.queryByTestId("shared-backtest-definitions")).toBeNull();
+      expect(screen.getByTestId("shared-backtest-intro").textContent).toContain(
+        "rules, the stock list and its securities, and the individual trades are private",
+      );
+    });
+  });
 });

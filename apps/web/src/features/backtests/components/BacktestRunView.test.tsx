@@ -878,7 +878,12 @@ describe("BacktestRunView", () => {
             },
           ],
           stockSectors: [
-            { symbol: "AAPL", sector: "Technology", code: "ETF_XLK", ticker: "XLK" },
+            {
+              symbol: "AAPL",
+              sector: "Technology",
+              code: "ETF_XLK",
+              ticker: "XLK",
+            },
             { symbol: "NOSEC", sector: null, code: null, ticker: null },
           ],
         },
@@ -905,9 +910,9 @@ describe("BacktestRunView", () => {
     expect(lines[1]!.textContent).toContain(
       "AAPL reads XLK. No sector ETF for NOSEC (no FMP sector)",
     );
-    expect(screen.getByTestId("backtest-etf-conditions-note").textContent).toContain(
-      "The Stock's Sector rules of NOSEC never matched in this run",
-    );
+    expect(
+      screen.getByTestId("backtest-etf-conditions-note").textContent,
+    ).toContain("The Stock's Sector rules of NOSEC never matched in this run");
   });
 
   it("shows no ETF notice for a run whose strategy reads none", async () => {
