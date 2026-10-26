@@ -77,7 +77,10 @@ A signed-in user may **duplicate** a strategy they can read — their own or a b
 a new strategy they own with the same logic and new identities: every level, Exit Rule, condition
 and trigger id is new, so no Monitor state keyed by the source's level ids can ever apply to it.
 It starts its own version history from the source's current definition
-(`../architecture/strategy-builder.md` § 6).
+(`../architecture/strategy-builder.md` § 6). The copy records its **origin** — `COPIED`, with the
+built-in at the root of the copy chain and the version and `definitionHash` it began as — and a
+strategy created from scratch records `AUTHORED`, so a shared backtest can call a run's strategy
+built-in, custom or derived on evidence (`docs/decisions/canonical-definitions-v1.md` §5).
 
 ## Signal model
 

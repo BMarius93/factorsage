@@ -209,8 +209,21 @@ The collection's search (`GET /backtests?q=`) also matches a search that names a
 
 `BacktestShare` (migration `20261023090000_backtest_share`, applied after the Run ID migration) is
 a run's one active public link, keyed by `runId` (cascade) with a unique `token`. It exists only
-while the owner shares the run — revoking deletes it — and copies nothing from the run. A shared
-report names its run by `runNumber`, never by `id`. See `docs/decisions/backtest-sharing-v1.md`.
+while the owner shares the run — revoking deletes it. A shared report names its run by
+`runNumber`, never by `id`. See `docs/decisions/backtest-sharing-v1.md`.
+
+Migration `20261026090000_definition_provenance_and_share_definitions`
+(`docs/decisions/canonical-definitions-v1.md`) is additive and backfills nothing:
+
+- `BacktestShare.definitions` / `.descriptions` (JSONB, both or neither by CHECK) hold the canonical
+  documents of the run's Strategy and List and their generated descriptions, written in the
+  statement that creates the link; `.publishDescriptions` (default false) is the owner's opt-in.
+  `NULL` definitions mean a link created before they were recorded.
+- `ContentOrigin` (`AUTHORED | COPIED`) with `Strategy.origin`, `originSystemKey`,
+  `originVersionNumber`, `originDefinitionHash` and `StockList.origin`, `originSystemKey`,
+  `originMembershipDigest`: how a customer's content came to exist, set on create and duplicate.
+  CHECKs keep an origin on `USER` rows only and the source columns all-or-nothing on a `COPIED` row.
+  `NULL` means "not recorded" (every row created before the migration) and is never read as either.
 
 Migration `20260911110000_add_monitors` adds the Monitor V1 slice: `Monitor`, `MonitorSignalState`,
 `MonitorSignal`, `MonitorScanSchedule` and the `MonitorEvaluationOutcome`, `MonitorEvaluableResult`
