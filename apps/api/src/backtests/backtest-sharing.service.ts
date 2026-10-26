@@ -60,6 +60,9 @@ import { BACKTESTS_LOGGER } from "./backtests.tokens";
  *
  * - **The owner** turns a completed run's link on and off. Every owner operation is scoped by the
  *   authenticated user id, so another user's run answers exactly like a run that does not exist.
+ *   Creating a link records the canonical definitions of the Strategy and List the run executed —
+ *   from its frozen snapshot, with provenance read from the Strategy and List rows' recorded
+ *   origin — and their descriptions, all in the same write (`docs/decisions/canonical-definitions-v1.md`).
  * - **A public reader** holds a token and gets the allowlisted report. That half never reads a
  *   user id, a strategy or list row, a trade, a position, a stock history or the provider: it reads
  *   the share row, the frozen run it points at, the run's stored summary and its persisted daily
@@ -712,9 +715,7 @@ export class BacktestSharingService {
     return (await this.sharedRunWithShare(token)).run;
   }
 
-  private async sharedRunWithShare(
-    token: string,
-  ): Promise<{
+  private async sharedRunWithShare(token: string): Promise<{
     run: SharedRunRow;
     share: Pick<
       ShareRow,
